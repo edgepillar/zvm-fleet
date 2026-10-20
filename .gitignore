@@ -1,0 +1,65 @@
+# Working notes, handoffs and logs: the state of a session, not of the code.
+HANDOFF*.md
+handoff*.md
+PROGRESS.md
+progress.md
+NOTES*.md
+notes*.md
+notes/
+TODO.md
+WISHLIST.md
+ideas.txt
+scratch/
+*.log
+*.out
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+
+# Secrets. Keys, passwords and tokens belong to one deployment and are never
+# shared; .env.example is the template that is.
+.env
+*.env
+.env.*
+!.env.example
+secrets/
+*.key
+*.pem
+*.keystore
+jwt.hex
+network-private-key
+wallet/
+
+# Local state.
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.tmp
+
+# Editors and operating systems.
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.vscode/
+.idea/
+
+# Build output.
+bin/
+*.exe
+*.exe~
+*.test
+
+# A run's raw per-phase JSON is hundreds of megabytes; -out decides where it
+# lands, and it belongs with the run.
+results/
+
+# The devnet's generated genesis, node configs and deployments: written by
+# devnet/up.sh for this machine, and wrong for any other.
+devnet/nom/
+devnet/nom-dp/
+devnet/l2/
+devnet/l2-dp/
+devnet/bench/

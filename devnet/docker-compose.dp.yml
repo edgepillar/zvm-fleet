@@ -1,0 +1,251 @@
+# The second ruleset: a NoM network with dynamic plasma active from genesis,
+# and a ZVM on top of it.
+#
+#   ./up.sh dp
+#
+# Everything here mirrors the v1 stack service for service, so both rulesets run
+# at once and every change is exercised against both (zvm-docs
+# spec/DECISIONS.md D4). The differences are the ones that matter and nothing
+# else:
+#
+#   chain 71, momentum version 2      every momentum is priced; a block pays
+#                                     ceil(basePlasma × nextFusionPrice / 1000)
+#   the burned fee is ON from         so the congestion term in the fee rule
+#   momentum 10                       (rollup/fee.go) is actually exercised
+#   its own subnet and its own ports  45xxx/47xxx is v1, 46xxx/48xxx is v2
+#
+# Configs are generated, not committed: ./up.sh dp writes nom-dp/ and l2-dp/.
+
+x-znnd-health: &znnd-health
+  test:
+    - CMD-SHELL
+    - >-
+      wget -qO- --header='Content-Type: application/json'
+      --post-data='{"jsonrpc":"2.0","id":1,"method":"ledger.getFrontierMomentum","params":[]}'
+      http://127.0.0.1:35997 | grep -qE '"height":([2-9]|[0-9]{2,})'
+  interval: 5s
+  timeout: 5s
+  retries: 60
+  start_period: 10s
+
+# See docker-compose.yml: reth has no wget/curl, so this is bash's /dev/tcp
+# doing a real JSON-RPC call. Anchors don't cross files, so this is its own
+# copy rather than a reference to the v1 one.
+x-reth-health: &reth-health
+  test:
+    - CMD
+    - /bin/bash
+    - -c
+    - >-
+      b='{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}';
+      exec 3<>/dev/tcp/127.0.0.1/8545 &&
+      printf 'POST / HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s' "$${#b}" "$$b" >&3 &&
+      grep -q '"result"' <&3
+  interval: 5s
+  timeout: 5s
+  retries: 60
+  start_period: 10s
+
+services:
+  l1-dp-pillar:
+    image: go-zenon-devnet:latest
+    pull_policy: never
+    container_name: zvm-l1-dp-pillar
+    profiles: ["dp"]
+    restart: unless-stopped
+    environment:
+      ZNND_ROLE: pillar
+    volumes:
+      - ./nom-dp:/devnet:ro
+      - l1-dp-pillar-data:/root/.znn
+    healthcheck: *znnd-health
+    networks:
+      l1dp:
+        ipv4_address: 172.27.0.10
+
+  l1-dp-rpc:
+    image: go-zenon-devnet:latest
+    pull_policy: never
+    container_name: zvm-l1-dp-rpc
+    profiles: ["dp"]
+    restart: unless-stopped
+    depends_on:
+      l1-dp-pillar:
+        condition: service_healthy
+    environment:
+      ZNND_ROLE: rpc
+    ports:
+      - "46997:35997"
+      - "46998:35998"
+    volumes:
+      - ./nom-dp:/devnet:ro
+      - l1-dp-rpc-data:/root/.znn
+    healthcheck: *znnd-health
+    networks:
+      l1dp:
+        ipv4_address: 172.27.0.11
+      default: {}
+
+  reth-dp:
+    image: ghcr.io/paradigmxyz/op-reth:v1.10.2
+    container_name: zvm-op-reth-dp
+    profiles: ["dp"]
+    restart: unless-stopped
+    entrypoint: ["op-reth"]
+    command:
+      - node
+      - --chain=/config/genesis.json
+      - --datadir=/data
+      - --authrpc.addr=0.0.0.0
+      - --authrpc.port=8551
+      - --authrpc.jwtsecret=/config/jwt.hex
+      - --http
+      - --http.addr=0.0.0.0
+      - --http.port=8545
+      - --http.corsdomain=*
+      - --http.api=eth,net,web3,debug,txpool
+      - --ws
+      - --ws.addr=0.0.0.0
+      - --ws.port=8546
+      - --ws.origins=*
+      - --ws.api=eth,net,web3,debug,txpool
+      - --rollup.sequencer=http://relayer-dp:8547
+      - --rollup.disable-tx-pool-gossip
+      - --disable-discovery
+      - --rpc.gascap=300000000
+      - --rpc.txfeecap=0
+      - -vvv
+    healthcheck: *reth-health
+    volumes:
+      - ./l2-dp:/config:ro
+      - op-reth-dp-data:/data
+    ports:
+      - "48545:8545"
+
+  node-dp:
+    image: zvm-node:latest
+    pull_policy: never
+    container_name: zvm-node-dp
+    profiles: ["dp"]
+    restart: unless-stopped
+    depends_on:
+      reth-dp:
+        condition: service_healthy
+      l1-dp-rpc:
+        condition: service_healthy
+    command:
+      - node
+      - -config=/config/rollup.json
+      - -jwt=/config/jwt.hex
+      - -l1=http://l1-dp-rpc:35997
+      - -engine=http://reth-dp:8551
+      - -eth=http://reth-dp:8545
+      - -db=/data/zvm.db
+      - -listen=:8080
+      - -faucet=http://faucet-dp:8549
+      - -bridge=http://bridge-dp:8548
+      - -relayer=http://relayer-dp:8547
+      - -media-dir=/data/media
+      - -mainnet-rpc=off
+      # This chain's own deployments, written by `zvm bench setup` and
+      # `zvm apps setup` with -out …-dp.json.
+      - -dex=/bench/deployment-dp.json
+      - -apps=/bench/apps-dp.json
+      - -l1-explorer=http://localhost:46000
+    volumes:
+      - ./l2-dp:/config:ro
+      - ./bench:/bench:ro
+      - node-dp-data:/data
+    ports:
+      - "48000:8080"
+    healthcheck:
+      # See docker-compose.yml: 503 once derivation has stalled.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz | grep -q '\"ok\":true'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  relayer-dp:
+    image: zvm-relayer:latest
+    pull_policy: never
+    container_name: zvm-relayer-dp
+    profiles: ["dp"]
+    restart: unless-stopped
+    depends_on:
+      reth-dp:
+        condition: service_healthy
+      l1-dp-rpc:
+        condition: service_healthy
+    command:
+      - relayer
+      - -config=/config/rollup.json
+      - -l1=http://l1-dp-rpc:35997
+      - -eth=http://reth-dp:8545
+      - -listen=:8547
+    volumes:
+      - ./l2-dp:/config:ro
+    ports:
+      - "48547:8547"
+
+  bridge-dp:
+    image: zvm-bridge:latest
+    pull_policy: never
+    container_name: zvm-bridge-dp
+    profiles: ["dp"]
+    restart: unless-stopped
+    depends_on:
+      reth-dp:
+        condition: service_healthy
+      l1-dp-rpc:
+        condition: service_healthy
+    command:
+      - bridge
+      - -config=/config/rollup.json
+      - -l1=http://l1-dp-rpc:35997
+      - -eth=http://reth-dp:8545
+      - -db=/data/bridge.db
+      - -listen=:8548
+      - -fund-plasma
+      - -fund-every=2m
+    volumes:
+      - ./l2-dp:/config:ro
+      - bridge-dp-data:/data
+    ports:
+      - "48548:8548"
+
+  faucet-dp:
+    image: zvm-core:latest
+    pull_policy: never
+    container_name: zvm-faucet-dp
+    profiles: ["dp"]
+    restart: unless-stopped
+    depends_on:
+      reth-dp:
+        condition: service_healthy
+      l1-dp-rpc:
+        condition: service_healthy
+    command:
+      - faucet
+      - -config=/config/rollup.json
+      - -l1=http://l1-dp-rpc:35997
+      - -eth=http://reth-dp:8545
+      - -listen=:8549
+    volumes:
+      - ./l2-dp:/config:ro
+    ports:
+      - "48549:8549"
+
+networks:
+  l1dp:
+    name: zvm-l1-dp
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.27.0.0/24
+
+volumes:
+  l1-dp-pillar-data:
+  l1-dp-rpc-data:
+  op-reth-dp-data:
+  node-dp-data:
+  bridge-dp-data:

@@ -1,0 +1,15 @@
+[submodule "zvm-core"]
+	path = zvm-core
+	url = https://github.com/Zenoglyphs-VM/zvm-core.git
+[submodule "zvm-node"]
+	path = zvm-node
+	url = https://github.com/Zenoglyphs-VM/zvm-node.git
+[submodule "zvm-relayer"]
+	path = zvm-relayer
+	url = https://github.com/Zenoglyphs-VM/zvm-relayer.git
+[submodule "zvm-bridge"]
+	path = zvm-bridge
+	url = https://github.com/Zenoglyphs-VM/zvm-bridge.git
+[submodule "go-zenon"]
+	path = go-zenon
+	url = https://github.com/zenon-network/go-zenon.git
