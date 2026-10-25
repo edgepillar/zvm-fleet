@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "repository": "Zenoglyphs-VM/zvm-core",
+  "revision": "0d8ac1dfcd35d324184a62027115eaa9c0e9b262",
+  "source_files": {
+    ".gitignore": "4d56952b0fb13bf8f9b6c13a6d4c34a075bac3af447636a1df4335d7576e2f97",
+    "check.mjs": "bac4068a2b43d673fb6fd51933353592205f37d9728cd0bc11db02ca32339172",
+    "cli.mjs": "253647631962c60e5ae6f45c31b943d12d3e20346afb63b27de1975c81b8539a",
+    "check.test.mjs": "03d21969e7b86dc367db4671e3619e54426a3c46f49d298e39999667f4f305ab",
+    "package.json": "84f59abc875b6c8760e2bf46b9e05ae19e1fe65ac8ca50f6aeeec5156af1e91e",
+    "package-lock.json": "a270dffbdda6e629a4774d9864c6203890ddfb95f8ba0203e7a97aee26a2892b"
+  },
+  "qualification": "The unchanged portable source passed 82 cases in its exact Core fork job with zero skips; each adopter still needs its own source and workflow checks.",
+  "source_url": "https://github.com/Zenoglyphs-VM/zvm-core/tree/0d8ac1dfcd35d324184a62027115eaa9c0e9b262/tools/doc-check"
+}

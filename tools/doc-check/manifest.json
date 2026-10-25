@@ -1,0 +1,119 @@
+{
+  "schema": 1,
+  "documents": [
+    "FLEET.md",
+    "README.md",
+    "SECURITY.md",
+    "docs/EVIDENCE.md",
+    "docs/GUIDE.md",
+    "tools/doc-check/README.md"
+  ],
+  "references": [
+    {
+      "id": "published-vectors",
+      "kind": "vector",
+      "external": {
+        "repository": "Zenoglyphs-VM/zvm-core",
+        "revision": "29e6d9b30be94de3772c850c7a1e9811585a8833",
+        "path": "vectors/vectors.json"
+      },
+      "format": "json",
+      "sha256": "47c1a3dd7ae040e19bdbd5ea7811c95e0d78dafd97fc1e3294761cbe993a5c85",
+      "bytes": 18070,
+      "pointers": [
+        "/version",
+        "/messages",
+        "/l1Info",
+        "/gas",
+        "/forks",
+        "/exchange"
+      ]
+    },
+    {
+      "id": "historical-table",
+      "kind": "source",
+      "path": "FLEET.md",
+      "format": "markdown",
+      "sha256": "e0000fe630d9f24b5555d181d8721def887bbeaaa684fd38b8ab0b46a39e592e",
+      "bytes": 7721,
+      "anchors": [
+        "evidence-status"
+      ]
+    },
+    {
+      "id": "phase-record-source",
+      "kind": "source",
+      "path": "fleet/fleet.go",
+      "format": "bytes",
+      "sha256": "91fc61c904d8ddec18d0b1e4010b8b55b730d3d2def8a49930b2d1b092dbc65e",
+      "bytes": 15380
+    },
+    {
+      "id": "phase-report-source",
+      "kind": "source",
+      "path": "fleet/report.go",
+      "format": "bytes",
+      "sha256": "c4b062f6a47cac17cba9c9364a18b5c1d9e50a40c844db9cca2a4b5e3a917a1c",
+      "bytes": 7648
+    },
+    {
+      "id": "user-report-source",
+      "kind": "source",
+      "path": "fleet/users_report.go",
+      "format": "bytes",
+      "sha256": "2955a4da543cfa5dfce7c46b5f1dcaa6ae40849bbe8ed2b19213a388aaaf2132",
+      "bytes": 17124
+    },
+    {
+      "id": "command-source",
+      "kind": "source",
+      "path": "cmd/zvm-fleet/run.go",
+      "format": "bytes",
+      "sha256": "2d5ab979a63083fac76c4a6b0b108c275c1e2dc1a57449389613650975d75d76",
+      "bytes": 6931
+    }
+  ],
+  "comparisons": [],
+  "claims": [
+    {
+      "id": "selected-fleet-source",
+      "document": "docs/EVIDENCE.md",
+      "anchor": "current-source-references",
+      "status": "implementation",
+      "sourceRevision": "d00b61aa734b4cb8e7103114772c60c1ebcaacb5",
+      "inputs": [
+        "phase-record-source",
+        "phase-report-source",
+        "user-report-source",
+        "command-source",
+        "published-vectors"
+      ],
+      "limitations": [
+        "Selected unchanged source bytes only; no renderer, application, submodule or benchmark execution."
+      ]
+    },
+    {
+      "id": "raw-retention-work",
+      "document": "docs/EVIDENCE.md",
+      "anchor": "planned-retention-work",
+      "status": "plan",
+      "sourceRevision": "d00b61aa734b4cb8e7103114772c60c1ebcaacb5",
+      "inputs": [],
+      "limitations": [
+        "Real raw-manifest retention, reporter completeness and independently qualified reproduction remain open."
+      ]
+    }
+  ],
+  "benchmarks": [
+    {
+      "id": "historical-fleet-table",
+      "document": "FLEET.md",
+      "anchor": "evidence-status",
+      "status": "unavailable",
+      "sourceRevision": "d00b61aa734b4cb8e7103114772c60c1ebcaacb5",
+      "limitations": [
+        "The original summary is retained, but its phase files, referenced per-transaction runs and source/run/platform completeness are unavailable in this snapshot."
+      ]
+    }
+  ]
+}

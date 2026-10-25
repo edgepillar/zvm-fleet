@@ -51,3 +51,5 @@ No node is built in: the endpoint flags default to `NOM_NODE`, `ZVM_RPC`,
 
 MIT licence. The full guide, with how it works and why:
 [docs/GUIDE.md](docs/GUIDE.md).
+
+[Source and benchmark evidence](docs/EVIDENCE.md) separates selected source, retained historical tables, unavailable raw inputs and planned retention work.

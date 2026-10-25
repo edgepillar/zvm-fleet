@@ -2,7 +2,23 @@ name: CI
 
 on:
   push:
+    paths-ignore:
+      - '**/*.md'
+      - 'tools/doc-check/*.mjs'
+      - 'tools/doc-check/package*.json'
+      - 'tools/doc-check/manifest.json'
+      - 'tools/doc-check/UPSTREAM.json'
+      - 'tools/doc-check/.gitignore'
+      - '.github/workflows/documentation.yml'
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'tools/doc-check/*.mjs'
+      - 'tools/doc-check/package*.json'
+      - 'tools/doc-check/manifest.json'
+      - 'tools/doc-check/UPSTREAM.json'
+      - 'tools/doc-check/.gitignore'
+      - '.github/workflows/documentation.yml'
 
 permissions:
   contents: read

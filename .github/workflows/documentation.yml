@@ -1,0 +1,32 @@
+name: Documentation evidence
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-documents:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Install pinned parser packages without lifecycle scripts
+        run: npm ci --prefix tools/doc-check --ignore-scripts --no-audit --no-fund
+      - name: Test the documentation and evidence checker
+        run: npm test --prefix tools/doc-check
+      - name: Acquire the selected immutable public vectors
+        run: >-
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2
+          --max-time 60 --max-filesize 524288
+          https://raw.githubusercontent.com/Zenoglyphs-VM/zvm-core/29e6d9b30be94de3772c850c7a1e9811585a8833/vectors/vectors.json
+          --output "$RUNNER_TEMP/g02-vectors.json"
+      - name: Check offline references and evidence records
+        run: node tools/doc-check/cli.mjs --input "published-vectors=$RUNNER_TEMP/g02-vectors.json"
