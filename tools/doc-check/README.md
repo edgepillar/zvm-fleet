@@ -105,4 +105,8 @@ license/attribution notices are preserved; generated reports do not establish
 anonymity. The [repository evidence page](../../docs/EVIDENCE.md) states this adoption's
 scope and remaining roadmap work.
 
-The unchanged portable code and test provenance is recorded in [UPSTREAM.json](UPSTREAM.json). This adoption changes inventory, evidence declarations and documentation only.
+The unchanged portable code and test provenance is recorded in [UPSTREAM.json](UPSTREAM.json).
+
+The separate [private raw input inventory](RAW-EVIDENCE.md) captures and verifies
+existing Fleet input bytes with built-ins and its own owned fixture suite. It
+does not change the six portable Core source files or qualify a benchmark.

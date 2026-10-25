@@ -11,5 +11,11 @@
     "package-lock.json": "a270dffbdda6e629a4774d9864c6203890ddfb95f8ba0203e7a97aee26a2892b"
   },
   "qualification": "The unchanged portable source passed 82 cases in its exact Core fork job with zero skips; each adopter still needs its own source and workflow checks.",
-  "source_url": "https://github.com/Zenoglyphs-VM/zvm-core/tree/0d8ac1dfcd35d324184a62027115eaa9c0e9b262/tools/doc-check"
+  "source_url": "https://github.com/Zenoglyphs-VM/zvm-core/tree/0d8ac1dfcd35d324184a62027115eaa9c0e9b262/tools/doc-check",
+  "additional_raw_inventory_implementation": {
+    "portable_Core_files_changed": false,
+    "strict_JSON_validation_function_source_sha256": "18ac74001cdb20c65c73bbc02f14d56834c41621b1d700b2a613ad61f13a110a",
+    "scope": "Separate builtin-only raw byte inventory modules and tests; original benchmark evidence remains unqualified.",
+    "retained_function_source": "https://github.com/Zenoglyphs-VM/zvm-core/blob/0d8ac1dfcd35d324184a62027115eaa9c0e9b262/tools/doc-check/check.mjs"
+  }
 }

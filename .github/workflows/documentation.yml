@@ -22,6 +22,8 @@ jobs:
         run: npm ci --prefix tools/doc-check --ignore-scripts --no-audit --no-fund
       - name: Test the documentation and evidence checker
         run: npm test --prefix tools/doc-check
+      - name: Test private raw input inventory capture and verification
+        run: node --test --test-reporter=tap --test-concurrency=1 tools/doc-check/raw-inventory.test.mjs
       - name: Acquire the selected immutable public vectors
         run: >-
           curl --fail --silent --show-error --proto '=https' --tlsv1.2

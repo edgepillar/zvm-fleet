@@ -42,13 +42,18 @@ allocated storage and between a saved summary and recalculation from raw records
 
 ## Planned retention work
 
-G02 still needs source-bound raw-manifest retention and independently qualified
-reproduction or explicit missing-evidence handling for real Fleet outputs. The
-generic checker can validate complete typed benchmark fixtures; those synthetic
-fixtures are not Fleet performance runs and do not fill the historical gap.
-Do not generate raw samples from summary tables or silently label incomplete
-input as a successful benchmark. Any future reporter/writer change needs its own
-source contract, bounded offline tests and dependency/integration qualification.
+The [private raw input inventory](../tools/doc-check/RAW-EVIDENCE.md) adds an
+offline capture/verify path for existing phase and user-run inputs. It requires
+explicit file/reference closure and an independently held inventory pin. It
+records original source/build/run declarations as unverified or unknown and
+calculates no performance aggregate. File-byte capture does not qualify the
+original run or change the legacy renderer.
+
+G02 still needs real historical raw-artifact recovery and independent
+source/run/platform/command/completeness and benchmark-method acceptance. The
+generic checker's typed benchmark fixtures and this tool's owned synthetic
+fixtures do not fill that gap. Preserve incomplete/failed evidence and original
+samples; no raw samples may be reconstructed from summary tables.
 
 ## Qualification limits
 
