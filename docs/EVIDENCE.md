@@ -40,7 +40,7 @@ identity. Missing profiles, partial/error phases, absent run records and unknown
 completion remain explicit. Preserve the distinction between apparent and
 allocated storage and between a saved summary and recalculation from raw records.
 
-## Planned retention work
+## Offline raw input inventory
 
 The [private raw input inventory](../tools/doc-check/RAW-EVIDENCE.md) adds an
 offline capture/verify path for existing phase and user-run inputs. It requires
@@ -48,6 +48,15 @@ explicit file/reference closure and an independently held inventory pin. It
 records original source/build/run declarations as unverified or unknown and
 calculates no performance aggregate. File-byte capture does not qualify the
 original run or change the legacy renderer.
+
+The selected [inventory module](../tools/doc-check/raw-inventory.mjs),
+[CLI](../tools/doc-check/raw-cli.mjs), [JSON validator](../tools/doc-check/raw-json.mjs)
+and [owned fixture source](../tools/doc-check/raw-inventory.test.mjs) are retained
+at Fleet `5bc02b3ed23d6471a777dc493c9422e8cd08d6f9` and checked against that Git
+revision by the manifest. This is a selected source correspondence claim. Actual
+local/hosted test execution and original benchmark acceptance are separate.
+
+## Planned retention work
 
 G02 still needs real historical raw-artifact recovery and independent
 source/run/platform/command/completeness and benchmark-method acceptance. The

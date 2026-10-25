@@ -72,6 +72,38 @@
       "format": "bytes",
       "sha256": "2d5ab979a63083fac76c4a6b0b108c275c1e2dc1a57449389613650975d75d76",
       "bytes": 6931
+    },
+    {
+      "id": "raw-json-source",
+      "kind": "source",
+      "path": "tools/doc-check/raw-json.mjs",
+      "format": "bytes",
+      "sha256": "71288d2f591752d806cfdd3a86e7e9ea1e8fc98551a24dc48480ed746959c2c9",
+      "bytes": 2835
+    },
+    {
+      "id": "raw-inventory-source",
+      "kind": "source",
+      "path": "tools/doc-check/raw-inventory.mjs",
+      "format": "bytes",
+      "sha256": "92b8b6e32c71f450c12df27f30ddf0d08e33275b6283be137dba29093a327779",
+      "bytes": 29091
+    },
+    {
+      "id": "raw-cli-source",
+      "kind": "source",
+      "path": "tools/doc-check/raw-cli.mjs",
+      "format": "bytes",
+      "sha256": "88f3b9bc5b3ca8112739f0ccd779b4e5cc41d9f68509c00c2d0c5ff43e9e8ca9",
+      "bytes": 2877
+    },
+    {
+      "id": "raw-fixture-source",
+      "kind": "source",
+      "path": "tools/doc-check/raw-inventory.test.mjs",
+      "format": "bytes",
+      "sha256": "cdf8cb4dbf8ae35c01c6b7d3a1451dbd5cf44caa0b47f98a81baf280e5dbd92c",
+      "bytes": 26083
     }
   ],
   "comparisons": [],
@@ -102,6 +134,22 @@
       "inputs": [],
       "limitations": [
         "Real raw-manifest retention, reporter completeness and independently qualified reproduction remain open."
+      ]
+    },
+    {
+      "id": "raw-input-inventory-implementation",
+      "document": "docs/EVIDENCE.md",
+      "anchor": "offline-raw-input-inventory",
+      "status": "implementation",
+      "sourceRevision": "5bc02b3ed23d6471a777dc493c9422e8cd08d6f9",
+      "inputs": [
+        "raw-json-source",
+        "raw-inventory-source",
+        "raw-cli-source",
+        "raw-fixture-source"
+      ],
+      "limitations": [
+        "Selected committed raw inventory modules and owned fixture source bytes only; this declaration executes no tests or benchmark and authenticates no original run."
       ]
     }
   ],
