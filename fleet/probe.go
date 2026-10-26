@@ -288,6 +288,7 @@ func (e *Env) snapshot(ctx context.Context) *Snapshot {
 
 // Sample is the five-second view of a phase.
 type Sample struct {
+	RunID      string                   `json:"runId,omitempty"`
 	T          int64                    `json:"t"`
 	Known      *SampleKnown             `json:"known,omitempty"`
 	Containers map[string]ContainerStat `json:"containers,omitempty"`
@@ -339,7 +340,7 @@ func num(v any) uint64 {
 }
 
 func (e *Env) sampleOnce(ctx context.Context) Sample {
-	s := Sample{T: time.Now().UnixMilli(), Known: new(SampleKnown)}
+	s := Sample{T: time.Now().UnixMilli(), RunID: e.userRunToken(), Known: new(SampleKnown)}
 	var wg sync.WaitGroup
 	wg.Add(4)
 	go func() {

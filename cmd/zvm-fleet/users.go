@@ -94,6 +94,9 @@ func benchUsers(args []string) error {
 		Dex: dex, Apps: appsDep, Arts: arts, Out: *out, Probe: *probe, Repo: ".", Opts: fleet.DefaultOptions(),
 		Names: names, Heal: *heal, SampleEvery: *sample, Log: slog.Default().With("svc", "users"),
 	}
+	if err := f.StartUserRun(); err != nil {
+		return err
+	}
 	if *follower != "" {
 		if f.Follower, err = bench.DialPooled(context.Background(), *follower); err != nil {
 			return err

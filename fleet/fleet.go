@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -123,6 +124,7 @@ type Env struct {
 	owned    map[int][]*big.Int // NFT ids each seller holds, from the list phase
 	runMu    sync.Mutex         // protects phase execution and stream configuration
 	stream   *jsonlOutput
+	userRun  *userRunClaim
 }
 
 // State survives between invocations, so phases can be re-run one at a time.
@@ -180,6 +182,7 @@ type RunRef struct {
 }
 
 type PhaseRecord struct {
+	RunID     string         `json:"runId,omitempty"`
 	ID        string         `json:"id"`
 	Title     string         `json:"title"`
 	StartedAt time.Time      `json:"startedAt"`
@@ -220,19 +223,46 @@ func (e *Env) StreamSamples() (func() error, error) {
 			return nil, errors.New("sample stream already active")
 		}
 	}
-	f, err := os.OpenFile(filepath.Join(e.Out, "samples.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	flags := os.O_CREATE | os.O_APPEND | os.O_WRONLY
+	if e.userRun != nil {
+		if err := e.checkUserRun(); err != nil {
+			return nil, err
+		}
+		flags = os.O_CREATE | os.O_EXCL | os.O_WRONLY
+	}
+	f, err := os.OpenFile(filepath.Join(e.Out, "samples.jsonl"), flags, 0o644)
 	if err != nil {
 		return nil, err
 	}
 	stream := newJSONLOutput(f, nil)
 	e.stream = &stream
-	e.onSample = func(s Sample) error { return stream.append(s, true) }
+	e.onSample = func(s Sample) error {
+		if id := e.userRunToken(); id != "" {
+			if s.RunID != "" && s.RunID != id {
+				stream.mu.Lock()
+				err := stream.failLocked("sample run identifier", errors.New("identifier mismatch"))
+				stream.mu.Unlock()
+				return err
+			}
+			s.RunID = id
+		}
+		return stream.append(s, true)
+	}
 	return stream.finish, nil
 }
 
 // New prepares an environment: HTTP client, running containers, the probe
 // copied into the node containers, and saved state.
 func (e *Env) Init(ctx context.Context) error {
+	if !e.runMu.TryLock() {
+		return errors.New("cannot initialize during phase execution")
+	}
+	defer e.runMu.Unlock()
+	if e.userRun != nil {
+		if err := e.checkUserRun(); err != nil {
+			return err
+		}
+	}
 	e.http = bench.PooledHTTP(60 * time.Second)
 	if err := os.MkdirAll(filepath.Join(e.Out, "runs"), 0o755); err != nil {
 		return err
@@ -250,8 +280,18 @@ func (e *Env) Init(ctx context.Context) error {
 	}
 	// Report() reads this back to render the right container names for this
 	// -out directory, without needing the flags the run started with.
-	if raw, err := json.MarshalIndent(e.Names, "", " "); err == nil {
-		os.WriteFile(filepath.Join(e.Out, "names.json"), raw, 0o644)
+	e.Names.RunID = e.userRunToken()
+	raw, err := json.MarshalIndent(e.Names, "", " ")
+	if err != nil {
+		return err
+	}
+	if e.userRun != nil {
+		err = writeNewUserFile(filepath.Join(e.Out, "names.json"), raw)
+	} else {
+		err = os.WriteFile(filepath.Join(e.Out, "names.json"), raw, 0o644)
+	}
+	if err != nil {
+		return fmt.Errorf("writing node profile: %w", err)
 	}
 	e.loadState()
 	return nil
@@ -265,6 +305,26 @@ func (e *Env) RunPhases(ctx context.Context, phases []Phase) (result error) {
 		return errors.New("phase execution already active")
 	}
 	defer e.runMu.Unlock()
+	if e.userRun != nil {
+		if err := e.checkUserRun(); err != nil {
+			return err
+		}
+	}
+	ids := map[string]bool{}
+	for _, ph := range phases {
+		if !filepath.IsLocal(ph.ID) || filepath.Base(ph.ID) != ph.ID || strings.ContainsAny(ph.ID, "/\\") {
+			return errors.New("phase identifier must be a local filename")
+		}
+		if e.userRun != nil {
+			if ids[ph.ID] {
+				return errors.New("duplicate phase identifier in a claimed user run")
+			}
+			ids[ph.ID] = true
+			if _, err := os.Lstat(filepath.Join(e.Out, ph.ID+".json")); !os.IsNotExist(err) {
+				return errors.New("claimed user phase output already exists or is unavailable")
+			}
+		}
+	}
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	if e.stream != nil {
@@ -293,7 +353,7 @@ func (e *Env) RunPhases(ctx context.Context, phases []Phase) (result error) {
 		if err := context.Cause(ctx); err != nil {
 			return errors.Join(failures, err)
 		}
-		rec := &PhaseRecord{ID: ph.ID, Title: ph.Title, StartedAt: time.Now().UTC(), Data: map[string]any{"settle": settled}}
+		rec := &PhaseRecord{ID: ph.ID, RunID: e.userRunToken(), Title: ph.Title, StartedAt: time.Now().UTC(), Data: map[string]any{"settle": settled}}
 		e.Log.Info("phase", "id", ph.ID, "title", ph.Title)
 		rec.Before = e.snapshot(ctx)
 		if err := context.Cause(ctx); err != nil {
@@ -342,6 +402,9 @@ func (e *Env) save(rec *PhaseRecord) error {
 	raw, err := json.MarshalIndent(rec, "", " ")
 	if err != nil {
 		return err
+	}
+	if e.userRun != nil {
+		return writeNewUserFile(filepath.Join(e.Out, rec.ID+".json"), append(raw, '\n'))
 	}
 	return os.WriteFile(filepath.Join(e.Out, rec.ID+".json"), append(raw, '\n'), 0o644)
 }

@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 	"unicode/utf8"
 )
 
@@ -48,6 +47,8 @@ type UserJSONLInput struct {
 }
 
 type UserInputEvidence struct {
+	Cohort        UserCohortEvidence       `json:"cohort"`
+	Temporal      UserTimeEvidence         `json:"temporal"`
 	Records       UserJSONLInput           `json:"records"`
 	Samples       UserJSONLInput           `json:"samples"`
 	Metadata      map[string]UserInputFile `json:"metadata"`
@@ -66,9 +67,9 @@ func (h *userInputHash) Write(raw []byte) (int, error) {
 	return n, err
 }
 
-func userToken(dec *json.Decoder, count *int) (json.Token, error) {
+func userToken(dec *json.Decoder, count *int, limit int) (json.Token, error) {
 	*count += 1
-	if *count > userJSONLTokenLimit {
+	if *count > limit {
 		return nil, errUserInput
 	}
 	token, err := dec.Token()
@@ -78,14 +79,14 @@ func userToken(dec *json.Decoder, count *int) (json.Token, error) {
 	return token, err
 }
 
-func userJSONContents(dec *json.Decoder, opening json.Delim, depth int, count *int) error {
+func userJSONContents(dec *json.Decoder, opening json.Delim, depth int, count *int, limit int) error {
 	if depth >= userJSONLDepthLimit {
 		return errUserInput
 	}
 	keys := map[string]bool{}
 	for dec.More() {
 		if opening == '{' {
-			key, err := userToken(dec, count)
+			key, err := userToken(dec, count, limit)
 			name, ok := key.(string)
 			if err != nil {
 				return err
@@ -95,7 +96,7 @@ func userJSONContents(dec *json.Decoder, opening json.Delim, depth int, count *i
 			}
 			keys[name] = true
 		}
-		value, err := userToken(dec, count)
+		value, err := userToken(dec, count, limit)
 		if err != nil {
 			return err
 		}
@@ -103,12 +104,12 @@ func userJSONContents(dec *json.Decoder, opening json.Delim, depth int, count *i
 			if delimiter != '{' && delimiter != '[' {
 				return errUserInput
 			}
-			if err := userJSONContents(dec, delimiter, depth+1, count); err != nil {
+			if err := userJSONContents(dec, delimiter, depth+1, count, limit); err != nil {
 				return err
 			}
 		}
 	}
-	closing, err := userToken(dec, count)
+	closing, err := userToken(dec, count, limit)
 	if err != nil {
 		return err
 	}
@@ -123,17 +124,21 @@ func userJSONContents(dec *json.Decoder, opening json.Delim, depth int, count *i
 }
 
 func userJSONObject(raw []byte) error {
+	return validateUserObject(raw, userJSONLTokenLimit)
+}
+
+func validateUserObject(raw []byte, limit int) error {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	count := 0
-	first, err := userToken(dec, &count)
+	first, err := userToken(dec, &count, limit)
 	if err != nil {
 		return err
 	}
 	if first != json.Delim('{') {
 		return errUserInput
 	}
-	if err := userJSONContents(dec, '{', 0, &count); err != nil {
+	if err := userJSONContents(dec, '{', 0, &count, limit); err != nil {
 		return err
 	}
 	if _, err := dec.Token(); err != io.EOF || !utf8.Valid(raw) {
@@ -292,7 +297,7 @@ func readUserMetadata(path string, out any) (UserInputFile, error) {
 	}
 	defer file.Close()
 	raw, err := io.ReadAll(file)
-	if err != nil || !utf8.Valid(raw) || decodeMeasurementJSON(bytes.NewReader(raw), out) != nil {
+	if err != nil || !utf8.Valid(raw) || validateUserObject(raw, len(raw)+1) != nil || decodeMeasurementJSON(bytes.NewReader(raw), out) != nil {
 		return evidence, fmt.Errorf("%s: invalid metadata", source)
 	}
 	if !stableUserInput(path, file, before, int64(len(raw))) {
@@ -303,59 +308,14 @@ func readUserMetadata(path string, out any) (UserInputFile, error) {
 	return evidence, nil
 }
 
-func loadUserContext(dir string, summary *UsersSummary) error {
-	summary.Inputs.RunCompletion = "not-established"
-	summary.Inputs.Metadata = map[string]UserInputFile{}
-	var meta *struct {
-		Label string         `json:"label"`
-		Mix   []ProfileCount `json:"mix"`
-	}
-	info, err := readUserMetadata(filepath.Join(dir, "users.json"), &meta)
-	if err != nil {
-		return err
-	}
-	if info.State != "missing" {
-		if meta == nil {
-			return fmt.Errorf("users.json: invalid metadata object")
-		}
-		for _, profile := range meta.Mix {
-			if _, known := profileByName(profile.Profile.Name); !known || profile.Count < 0 {
-				return fmt.Errorf("users.json: invalid profile count")
-			}
-		}
-		summary.Label, summary.Mix = meta.Label, meta.Mix
-	}
-	summary.Inputs.Metadata["users.json"] = info
-	files, err := filepath.Glob(filepath.Join(dir, "*-users-*.json"))
-	if err != nil {
-		return fmt.Errorf("user phase metadata selection failed")
-	}
-	if len(files) == 0 {
-		return nil
-	}
-	var phase *PhaseRecord
-	info, err = readUserMetadata(files[len(files)-1], &phase)
-	if err != nil || info.State == "missing" || phase == nil {
-		return fmt.Errorf("user phase metadata is unavailable or invalid")
-	}
-	for _, key := range []string{"simStart", "simEnd"} {
-		if value, present := phase.Data[key]; present {
-			text, ok := value.(string)
-			if !ok {
-				return fmt.Errorf("user phase has invalid %s", key)
-			}
-			if _, err := time.Parse(time.RFC3339Nano, text); err != nil {
-				return fmt.Errorf("user phase has invalid %s", key)
-			}
-		}
-	}
-	summary.Phase = phase
-	summary.Inputs.Metadata[info.Name] = info
-	return nil
-}
-
 func renderUserInputs(out *strings.Builder, inputs UserInputEvidence) {
 	out.WriteString("\n## Retained input evidence\n\n")
+	fmt.Fprintf(out, "Common-run declaration: `%s`", inputs.Cohort.State)
+	if inputs.Cohort.RunID != "" {
+		fmt.Fprintf(out, ", identifier `%s`, all context files observed: `%t`", inputs.Cohort.RunID, inputs.Cohort.ContextComplete)
+	}
+	out.WriteString(". Identifiers correlate declarations; they do not authenticate a writer or prove atomicity/completion.\n\n")
+	fmt.Fprintf(out, "Rate interval basis: `%s`; last retained record timestamp: `%d` ms. Unknown or zero duration rates are `n/a`. Payout timestamps are L2 block anchors, not wall-clock action starts.\n\n", inputs.Temporal.Basis, inputs.Temporal.LastRetainedRecordMS)
 	if inputs.Partial {
 		out.WriteString("**PARTIAL INPUT.** These tables use only the retained valid prefix and usable observations. Missing or unfinished input does not establish a complete run.\n\n")
 	}

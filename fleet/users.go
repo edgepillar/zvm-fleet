@@ -184,6 +184,7 @@ const (
 // order posted to the node. They are streamed to records.jsonl as they finish,
 // so a run that dies at hour five still has its first five hours.
 type Record struct {
+	RunID     string `json:"runId,omitempty"`
 	T         int64  `json:"t"` // start, unix ms
 	User      int    `json:"user"`
 	Profile   string `json:"profile"`
@@ -241,6 +242,17 @@ type user struct {
 }
 
 func (s *sim) emit(r *Record) {
+	if s.e != nil {
+		if id := s.e.userRunToken(); id != "" {
+			if r.RunID != "" && r.RunID != id {
+				s.mu.Lock()
+				s.failLocked("record run identifier", errors.New("identifier mismatch"))
+				s.mu.Unlock()
+				return
+			}
+			r.RunID = id
+		}
+	}
 	if err := s.append(r, false); err != nil {
 		return
 	}
@@ -270,6 +282,15 @@ func UsersPhase(o UserOptions) Phase {
 }
 
 func (e *Env) runUsers(ctx context.Context, p *PhaseRecord, o UserOptions) (result error) {
+	meta := map[string]any{"label": o.Label, "mix": o.Mix, "duration": o.Duration.String(), "ramp": o.Ramp.String(), "pace": o.Pace,
+		"chainId": e.Rollup.L2ChainID, "l1ChainId": e.Rollup.L1ChainID, "runId": e.userRunToken()}
+	raw, err := json.MarshalIndent(meta, "", " ")
+	if err != nil {
+		return fmt.Errorf("encoding user metadata: %w", err)
+	}
+	if err := e.checkUserRun(); err != nil {
+		return err
+	}
 	f, err := os.OpenFile(filepath.Join(e.Out, "records.jsonl"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
@@ -282,14 +303,8 @@ func (e *Env) runUsers(ctx context.Context, p *PhaseRecord, o UserOptions) (resu
 			result = errors.Join(result, err)
 		}
 	}()
-	meta := map[string]any{"label": o.Label, "mix": o.Mix, "duration": o.Duration.String(), "ramp": o.Ramp.String(), "pace": o.Pace,
-		"chainId": e.Rollup.L2ChainID, "l1ChainId": e.Rollup.L1ChainID}
 	p.set("users", meta)
-	raw, err := json.MarshalIndent(meta, "", " ")
-	if err != nil {
-		return fmt.Errorf("encoding user metadata: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(e.Out, "users.json"), raw, 0o644); err != nil {
+	if err := writeNewUserFile(filepath.Join(e.Out, "users.json"), raw); err != nil {
 		return fmt.Errorf("writing user metadata: %w", err)
 	}
 

@@ -17,6 +17,7 @@ import "strings"
 // EngineBCandidates empty, which every caller here already treats as "absent"
 // the same way a stopped container would be.
 type Names struct {
+	RunID                               string `json:"runId,omitempty"`
 	L1Pillar, L1RPC                     string
 	EngineCandidates, EngineBCandidates []string
 	Node, NodeB                         string

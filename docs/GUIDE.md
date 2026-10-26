@@ -224,10 +224,58 @@ Phase/state save errors are joined with the original failures. The users CLI
 closes samples before replay and preserves run, stream and report errors even
 when it can write a useful partial report. It prints success only when all pass.
 
-Sample append mode is retained and does not assign a new cohort identity to old
-data. Fresh output directories and explicit input evidence remain necessary;
-these checks do not prove cross-file atomicity, whole-run completeness, arbitrary
-workload cooperation with cancellation or the durability of stored bytes.
+Generic Fleet sample append mode is retained. New user simulations use the
+fresh-output claim below. Stream error handling alone does not prove cross-file
+atomicity, whole-run completeness, arbitrary workload cooperation with
+cancellation or the durability of stored bytes.
+
+Before initializing a user simulation, call `Env.StartUserRun()`. The users CLI
+does this before dialing its optional follower or running `Init`. The output
+directory must be absent or empty. An exclusive `user-run.json` marker selects
+one cooperating writer; existing evidence is never adopted or removed. A failed
+claim may retain its incomplete marker for inspection. New records, samples,
+user/profile metadata and phase files use exclusive creation. Claimed directory
+and marker identity/content are rechecked before output or phase execution.
+Phase IDs must be local filenames; duplicate or existing claimed phase output is
+refused before probes start. Generic Fleet rerun behavior remains separate.
+
+A randomly generated 128-bit `runId` accompanies user records, samples, profile
+metadata, user metadata and phase records, including the phase's user-metadata
+copy. User report replay rejects mixed, missing-with-present, malformed or
+noncanonical identifier fields. It refuses multiple user phase files instead of
+selecting the last filename, checks phase ID/file agreement and compares the
+retained user metadata with its phase copy. Declared population entries must be
+unique known profiles with bounded counts; record user/profile pairs must match
+that roster. Metadata JSON rejects duplicate keys and ambiguous root documents.
+Profile metadata is read once through the same stable regular-file path used for
+its hash and declaration checks.
+
+`inputs.cohort.state` is `declared-consistent` when the observed declarations
+agree, or `legacy-unbound` when every observed input lacks an identifier. Missing
+context files in a declared run remain explicit partial input. Existing legacy
+bytes are preserved; an identifier is never invented for them. Identifiers are
+correlation data, without authentication, atomic cross-file identity, stored-byte
+durability or proof of a complete run. `runCompletion` stays `not-established`.
+
+User replay rejects reversed or inconsistent enclosing/simulation bounds and
+wall-clock action records outside a declared interval. JSONL timestamps have
+millisecond resolution; bound comparisons use that resolution. Payout record
+timestamps are L2 block anchors and are not treated as wall-clock action starts.
+The report retains exact interval endpoints and states whether its rate basis is
+`declared-simulation`, `declared-start-retained-prefix` or
+`retained-record-start-span`. Declared start/end intervals retain idle time after
+the last action; an unfinished interval stays partial. The legacy observed span
+does not establish the full run's duration.
+
+Minute-aligned window labels no longer add padding to rate denominators. Each
+window uses its positive overlap with the report interval; zero/unknown duration
+is `n/a`, with explicit total/window/profile availability flags in JSON. A final
+sample exactly on a declared half-hour endpoint belongs to the last active
+window. Samples outside a declared interval remain counted/hashed as accepted
+input but do not affect resource/counter tables. Legacy inputs retain the earlier
+extended sample-selection policy and its stated evidence limits. Other report
+aggregates, cross-domain clock guarantees and full-system qualification remain
+separate acceptance work.
 
 The existing Go CI job adds a six-minute race step and a three-minute fuzz step
 after build/vet/tests, reusing their module/toolchain inputs. The fuzzer targets

@@ -23,48 +23,53 @@ type UsersSummary struct {
 	Errors   []ErrorCount      `json:"errors"`
 	Inputs   UserInputEvidence `json:"inputs"`
 	Phase    *PhaseRecord      `json:"-"`
+	context  userReportContext
 }
 
 type UsersTotals struct {
-	Hours        float64 `json:"hours"`
-	Txs          int     `json:"txs"`
-	Confirmed    int     `json:"confirmed"`
-	Reverted     int     `json:"reverted"`
-	Failed       int     `json:"failed"` // refused, or no receipt
-	Skipped      int     `json:"skipped"`
-	Reads        int     `json:"reads"`
-	ReadErrors   int     `json:"readErrors"`
-	Orders       int     `json:"orders"`
-	Payouts      int     `json:"payouts"`
-	PayoutsPaid  int     `json:"payoutsPaid"`
-	TxPerSec     float64 `json:"txPerSec"`
-	PeakTxPerSec float64 `json:"peakTxPerSec"` // busiest window
-	Confirm      Dist    `json:"confirmMs"`
-	Include      Dist    `json:"includeMs"`
-	Read         Dist    `json:"readMs"`
-	GasTotal     uint64  `json:"gasTotal"`
-	Blocks       int     `json:"blocks"` // distinct L2 blocks holding a user transaction
+	Hours         float64 `json:"hours"`
+	Txs           int     `json:"txs"`
+	Confirmed     int     `json:"confirmed"`
+	Reverted      int     `json:"reverted"`
+	Failed        int     `json:"failed"` // refused, or no receipt
+	Skipped       int     `json:"skipped"`
+	Reads         int     `json:"reads"`
+	ReadErrors    int     `json:"readErrors"`
+	Orders        int     `json:"orders"`
+	Payouts       int     `json:"payouts"`
+	PayoutsPaid   int     `json:"payoutsPaid"`
+	TxPerSec      float64 `json:"txPerSec"`
+	PeakTxPerSec  float64 `json:"peakTxPerSec"` // busiest window
+	RateKnown     bool    `json:"rateKnown"`
+	PeakRateKnown bool    `json:"peakRateKnown"`
+	RateBasis     string  `json:"rateBasis"`
+	Confirm       Dist    `json:"confirmMs"`
+	Include       Dist    `json:"includeMs"`
+	Read          Dist    `json:"readMs"`
+	GasTotal      uint64  `json:"gasTotal"`
+	Blocks        int     `json:"blocks"` // distinct L2 blocks holding a user transaction
 }
 
 // Agg is one row of the by-profile or by-action tables.
 type Agg struct {
-	Name     string  `json:"name"`
-	Kind     string  `json:"kind"`
-	Users    int     `json:"users,omitempty"`
-	N        int     `json:"n"`
-	OK       int     `json:"ok"`
-	Reverted int     `json:"reverted"`
-	Failed   int     `json:"failed"`
-	Skipped  int     `json:"skipped"`
-	Reads    int     `json:"reads"`
-	GasMean  float64 `json:"gasMean"`
-	PerHour  float64 `json:"perUserHour,omitempty"` // transactions per user-hour
-	Confirm  Dist    `json:"confirmMs"`
-	Latency  Dist    `json:"latencyMs"`
-	confirm  []float64
-	latency  []float64
-	gas      uint64
-	gasN     int
+	Name         string  `json:"name"`
+	Kind         string  `json:"kind"`
+	Users        int     `json:"users,omitempty"`
+	N            int     `json:"n"`
+	OK           int     `json:"ok"`
+	Reverted     int     `json:"reverted"`
+	Failed       int     `json:"failed"`
+	Skipped      int     `json:"skipped"`
+	Reads        int     `json:"reads"`
+	GasMean      float64 `json:"gasMean"`
+	PerHour      float64 `json:"perUserHour,omitempty"` // transactions per user-hour
+	PerHourKnown bool    `json:"perUserHourKnown"`
+	Confirm      Dist    `json:"confirmMs"`
+	Latency      Dist    `json:"latencyMs"`
+	confirm      []float64
+	latency      []float64
+	gas          uint64
+	gasN         int
 }
 
 // Window is one slice of the run in time.
@@ -74,6 +79,7 @@ type Window struct {
 	OK            int       `json:"ok"`
 	Failed        int       `json:"failed"`
 	TxPerSec      float64   `json:"txPerSec"`
+	RateKnown     bool      `json:"rateKnown"`
 	Confirm       Dist      `json:"confirmMs"`
 	Read          Dist      `json:"readMs"`
 	Queued        uint64    `json:"relayerQueuedMax"`
@@ -102,19 +108,27 @@ type ErrorCount struct {
 const WindowSize = 30 * time.Minute
 
 func SummarizeUsers(dir string) (*UsersSummary, error) {
-	names, err := reportNames(dir)
-	if err != nil {
-		return nil, err
-	}
 	s := &UsersSummary{}
 	if err := loadUserContext(dir, s); err != nil {
 		return nil, err
 	}
+	names := s.context.names
+	var err error
 
 	var recs []Record
 	s.Inputs.Records, err = readUserJSONL(filepath.Join(dir, "records.jsonl"), false, func(raw []byte) error {
 		record, err := userRecord(raw)
 		if err != nil {
+			return err
+		}
+		id, err := rowRunID(raw)
+		if err != nil {
+			return err
+		}
+		if err := s.observeRunID("records.jsonl", id); err != nil {
+			return err
+		}
+		if err := s.checkRecordContext(record); err != nil {
 			return err
 		}
 		recs = append(recs, *record)
@@ -128,16 +142,20 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 	}
 	sort.Slice(recs, func(i, j int) bool { return recs[i].T < recs[j].T })
 	s.Start = time.UnixMilli(recs[0].T)
-	if s.Phase != nil {
-		if v, ok := s.Phase.Data["simStart"].(string); ok {
-			if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
-				s.Start = t
-			}
-		}
+	if s.context.start != nil {
+		s.Start = *s.context.start
 	}
 	s.End = time.UnixMilli(recs[len(recs)-1].T)
-	s.Start = s.Start.Truncate(time.Minute)
-	if s.Start.After(s.End) || s.End.Sub(s.Start)/WindowSize >= userReportWindowLimit {
+	s.Inputs.Temporal = UserTimeEvidence{Basis: "retained-record-start-span", Start: s.Start, End: s.End, LastRetainedRecordMS: recs[len(recs)-1].T}
+	if s.context.end != nil {
+		s.End = *s.context.end
+		s.Inputs.Temporal.Basis = "declared-simulation"
+	} else if s.context.start != nil {
+		s.Inputs.Temporal.Basis = "declared-start-retained-prefix"
+	}
+	s.Inputs.Temporal.End = s.End
+	anchor := s.Start.Truncate(time.Minute)
+	if s.Start.After(s.End) || s.End.Sub(anchor)/WindowSize >= userReportWindowLimit {
 		return nil, fmt.Errorf("user report time span exceeds the window bound or conflicts with its context")
 	}
 	s.Inputs.Records.UsedRows = s.Inputs.Records.Rows
@@ -148,12 +166,15 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 	errs := map[[2]string]int{}
 	var windows []*Window
 	window := func(t time.Time) *Window {
-		i := int(t.Sub(s.Start) / WindowSize)
+		i := int(t.Sub(anchor) / WindowSize)
+		if s.context.end != nil && t.Equal(s.End) && i > 0 && t.Equal(anchor.Add(time.Duration(i)*WindowSize)) {
+			i-- // the final endpoint belongs to the last active window
+		}
 		if i < 0 {
 			i = 0
 		}
 		for len(windows) <= i {
-			windows = append(windows, &Window{Start: s.Start.Add(time.Duration(len(windows)) * WindowSize)})
+			windows = append(windows, &Window{Start: anchor.Add(time.Duration(len(windows)) * WindowSize)})
 		}
 		return windows[i]
 	}
@@ -175,7 +196,13 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 			aa = &Agg{Name: r.Action, Kind: r.Kind}
 			actions[r.Action] = aa
 		}
-		w := window(time.UnixMilli(r.T))
+		var w *Window
+		if r.Kind == "tx" || r.Kind == "read" {
+			if time.UnixMilli(r.T).Sub(anchor)/WindowSize >= userReportWindowLimit {
+				return nil, fmt.Errorf("user record exceeds the report window bound")
+			}
+			w = window(time.UnixMilli(r.T))
+		}
 		for _, a := range []*Agg{pa, aa} {
 			switch {
 			case r.Skipped != "":
@@ -255,14 +282,8 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 		}
 	}
 	simEnd := s.End
-	if s.Phase != nil {
-		if v, ok := s.Phase.Data["simEnd"].(string); ok {
-			if t, err := time.Parse(time.RFC3339Nano, v); err == nil && t.Before(simEnd) {
-				simEnd = t
-			}
-		}
-	}
 	t.Hours = simEnd.Sub(s.Start).Hours()
+	t.RateKnown, t.RateBasis = simEnd.After(s.Start), s.Inputs.Temporal.Basis
 	if t.Hours > 0 {
 		t.TxPerSec = float64(t.Txs) / (t.Hours * 3600)
 	}
@@ -275,11 +296,22 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 		if err != nil {
 			return err
 		}
+		id, err := rowRunID(raw)
+		if err != nil {
+			return err
+		}
+		if err := s.observeRunID("samples.jsonl", id); err != nil {
+			return err
+		}
 		at := time.UnixMilli(sm.T)
-		if at.Before(s.Start) || at.After(simEnd.Add(WindowSize)) {
+		limit := simEnd.Add(WindowSize)
+		if s.context.end != nil {
+			limit = simEnd
+		}
+		if sm.T < s.Start.UnixMilli() || sm.T > limit.UnixMilli() {
 			return nil
 		}
-		if at.Sub(s.Start)/WindowSize >= userReportWindowLimit {
+		if at.Sub(anchor)/WindowSize >= userReportWindowLimit {
 			return fmt.Errorf("user sample exceeds the report window bound")
 		}
 		usedSamples++
@@ -297,14 +329,24 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 		return nil, err
 	}
 	s.Inputs.Samples.UsedRows = usedSamples
-	s.Inputs.Partial = s.Inputs.Records.State != "terminated" || s.Inputs.Samples.State != "terminated" || s.Inputs.Samples.Rows == 0
+	c := s.context
+	s.Inputs.Cohort.ContextComplete = c.marker && c.users && c.namesFile && c.phase && c.phaseUsers
+	s.Inputs.Partial = s.Inputs.Records.State != "terminated" || s.Inputs.Samples.State != "terminated" || s.Inputs.Samples.Rows == 0 ||
+		s.Inputs.Cohort.RunID != "" && !s.Inputs.Cohort.ContextComplete || c.start != nil && c.end == nil
 	for _, w := range windows {
-		secs := WindowSize.Seconds()
-		if end := w.Start.Add(WindowSize); end.After(simEnd) {
-			secs = max(simEnd.Sub(w.Start).Seconds(), 1)
+		lo, hi := w.Start, w.Start.Add(WindowSize)
+		if lo.Before(s.Start) {
+			lo = s.Start
 		}
-		w.TxPerSec = float64(w.Txs) / secs
-		t.PeakTxPerSec = max(t.PeakTxPerSec, w.TxPerSec)
+		if hi.After(simEnd) {
+			hi = simEnd
+		}
+		w.RateKnown = t.RateKnown && hi.After(lo)
+		if w.RateKnown {
+			w.TxPerSec = float64(w.Txs) / hi.Sub(lo).Seconds()
+			t.PeakTxPerSec = max(t.PeakTxPerSec, w.TxPerSec)
+			t.PeakRateKnown = true
+		}
 		w.Confirm, w.Read = dist(w.confirm), dist(w.read)
 		w.L2Blocks, w.L2BlocksKnown = w.l2.result()
 		w.L1Moms, w.L1MomsKnown = w.l1.result()
@@ -333,6 +375,7 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 		finish(a)
 		if t.Hours > 0 && a.Users > 0 {
 			a.PerHour = float64(a.N) / (float64(a.Users) * t.Hours)
+			a.PerHourKnown = true
 		}
 		s.Profiles = append(s.Profiles, a)
 	}
@@ -407,8 +450,8 @@ func UsersMarkdown(s *UsersSummary) string {
 	row("Reverted", fmt.Sprintf("%s (%s)", n64(t.Reverted), pct(t.Reverted, t.Txs)))
 	row("Failed (refused or no receipt)", fmt.Sprintf("%s (%s)", n64(t.Failed), pct(t.Failed, t.Txs)))
 	row("Skipped (nothing to do)", n64(t.Skipped))
-	row("Mean offered tx/s", fmt.Sprintf("%.2f", t.TxPerSec))
-	row(fmt.Sprintf("Busiest %s tx/s", WindowSize), fmt.Sprintf("%.2f", t.PeakTxPerSec))
+	row("Mean offered tx/s", userRate(t.TxPerSec, t.RateKnown, 2))
+	row(fmt.Sprintf("Busiest %s tx/s", WindowSize), userRate(t.PeakTxPerSec, t.PeakRateKnown, 2))
 	row("Confirmation p50 / p90 / p99 / max, s", fmt.Sprintf("%s / %s / %s / %s", secs(t.Confirm.P50), secs(t.Confirm.P90), secs(t.Confirm.P99), secs(t.Confirm.Max)))
 	row("Submit → block timestamp p50 / p90, s", fmt.Sprintf("%s / %s", secs(t.Include.P50), secs(t.Include.P90)))
 	row("L2 blocks carrying a user tx", n64(t.Blocks))
@@ -420,7 +463,7 @@ func UsersMarkdown(s *UsersSummary) string {
 
 	b.WriteString("\n## By profile\n\n| Profile | Users | Txs | Tx/user-hour | OK | Reverted | Failed | Skipped | Confirm p50 s | p90 s | p99 s | Page loads | Load p50 ms |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
 	for _, a := range s.Profiles {
-		fmt.Fprintf(&b, "| %s | %d | %s | %.1f | %s | %d | %d | %d | %s | %s | %s | %s | %.0f |\n", a.Name, a.Users, n64(a.N), a.PerHour,
+		fmt.Fprintf(&b, "| %s | %d | %s | %s | %s | %d | %d | %d | %s | %s | %s | %s | %.0f |\n", a.Name, a.Users, n64(a.N), userRate(a.PerHour, a.PerHourKnown, 1),
 			n64(a.OK), a.Reverted, a.Failed, a.Skipped, secs(a.Confirm.P50), secs(a.Confirm.P90), secs(a.Confirm.P99), n64(a.Reads), a.Latency.P50)
 	}
 
@@ -444,8 +487,8 @@ func UsersMarkdown(s *UsersSummary) string {
 	b.WriteString("L2 blocks and momentums require two distinct, ordered sample times with usable nondecreasing counters. Missing observations, counter resets or conflicting times produce `n/a`; a measured zero needs both endpoints. These are observed sample spans within each window, excluding unobserved edges.\n\n")
 	b.WriteString("| Window (UTC) | Txs | Tx/s | Failed | Confirm p50 s | p90 s | Load p50 ms | Relayer queue max | L2 blocks | Momentums | node CPU | engine CPU | relayer CPU | node MiB | engine MiB |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
 	for _, w := range s.Windows {
-		fmt.Fprintf(&b, "| %s | %s | %.2f | %d | %s | %s | %.0f | %s | %s | %s | %s | %s | %s | %s | %s |\n",
-			w.Start.UTC().Format("15:04"), n64(w.Txs), w.TxPerSec, w.Failed, secs(w.Confirm.P50), secs(w.Confirm.P90), w.Read.P50,
+		fmt.Fprintf(&b, "| %s | %s | %s | %d | %s | %s | %.0f | %s | %s | %s | %s | %s | %s | %s | %s |\n",
+			w.Start.UTC().Format("15:04"), n64(w.Txs), userRate(w.TxPerSec, w.RateKnown, 2), w.Failed, secs(w.Confirm.P50), secs(w.Confirm.P90), w.Read.P50,
 			sampleWindowCount(w.Queued, w.Resources.RelayerQueued > 0), sampleWindowCount(w.L2Blocks, w.L2BlocksKnown), sampleWindowCount(w.L1Moms, w.L1MomsKnown),
 			resourcePercent(w.NodeCPU, w.Resources.NodeCPU), resourcePercent(w.EngineCPU, w.Resources.EngineCPU), resourcePercent(w.RelayerCPU, w.Resources.RelayerCPU),
 			resourceMemory(w.NodeMem, w.Resources.NodeMem), resourceMemory(w.EngineMem, w.Resources.EngineMem))
