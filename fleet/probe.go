@@ -152,8 +152,13 @@ func contains(list []string, s string) bool {
 }
 
 func (e *Env) probe(ctx context.Context, container string, media bool) (*bench.StorageReport, error) {
+	report, _, _, err := e.probeObserved(ctx, container, media)
+	return report, err
+}
+
+func (e *Env) probeObserved(ctx context.Context, container string, media bool) (*bench.StorageReport, bool, bool, error) {
 	if !e.running[container] {
-		return nil, nil
+		return nil, false, false, nil
 	}
 	args := []string{"exec", container, "/tmp/zvm-probe", "bench", "storage", "-db", "/data/zvm.db"}
 	if media {
@@ -164,10 +169,17 @@ func (e *Env) probe(ctx context.Context, container string, media bool) (*bench.S
 	cmd.Stderr = &stderr
 	raw, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("%v: %s", err, strings.TrimSpace(stderr.String()))
+		return nil, false, false, fmt.Errorf("%v: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	if !bytes.HasPrefix(bytes.TrimSpace(raw), []byte("{")) {
+		return nil, false, false, fmt.Errorf("storage probe must return an object")
 	}
 	rep := new(bench.StorageReport)
-	return rep, json.Unmarshal(raw, rep)
+	if err := json.Unmarshal(raw, rep); err != nil {
+		return nil, false, false, err
+	}
+	file, pages := storageAvailability(raw, rep)
+	return rep, file, pages, nil
 }
 
 func (e *Env) getJSON(ctx context.Context, path string, out any) error {
@@ -199,19 +211,22 @@ func pick(m map[string]any, keys ...string) map[string]any {
 
 // Snapshot is everything a phase's cost is computed from.
 type Snapshot struct {
-	At           time.Time                `json:"at"`
-	TookMS       int64                    `json:"tookMs"`
-	Containers   map[string]ContainerStat `json:"containers"`
-	Dirs         map[string]DirSize       `json:"dirs"`
-	Index        *bench.StorageReport     `json:"index,omitempty"`
-	FollowerDB   *bench.StorageReport     `json:"followerDb,omitempty"`
-	Ops          map[string]any           `json:"ops,omitempty"`
-	Services     map[string]any           `json:"services,omitempty"`
-	L2Head       uint64                   `json:"l2Head"`
-	L2HeadKnown  *bool                    `json:"l2HeadKnown,omitempty"`
-	FollowerHead uint64                   `json:"followerHead"`
-	VaultHeight  uint64                   `json:"vaultHeight"`
-	Errors       []string                 `json:"errors,omitempty"`
+	IndexFileBytesKnown *bool                    `json:"indexFileBytesKnown,omitempty"`
+	IndexPagesKnown     *bool                    `json:"indexPagesKnown,omitempty"`
+	FollowerPagesKnown  *bool                    `json:"followerPagesKnown,omitempty"`
+	At                  time.Time                `json:"at"`
+	TookMS              int64                    `json:"tookMs"`
+	Containers          map[string]ContainerStat `json:"containers"`
+	Dirs                map[string]DirSize       `json:"dirs"`
+	Index               *bench.StorageReport     `json:"index,omitempty"`
+	FollowerDB          *bench.StorageReport     `json:"followerDb,omitempty"`
+	Ops                 map[string]any           `json:"ops,omitempty"`
+	Services            map[string]any           `json:"services,omitempty"`
+	L2Head              uint64                   `json:"l2Head"`
+	L2HeadKnown         *bool                    `json:"l2HeadKnown,omitempty"`
+	FollowerHead        uint64                   `json:"followerHead"`
+	VaultHeight         uint64                   `json:"vaultHeight"`
+	Errors              []string                 `json:"errors,omitempty"`
 }
 
 func (e *Env) snapshot(ctx context.Context) *Snapshot {
@@ -236,19 +251,21 @@ func (e *Env) snapshot(ctx context.Context) *Snapshot {
 	go func() { defer wg.Done(); s.Dirs = e.dirSizes(ctx) }()
 	go func() {
 		defer wg.Done()
-		r, err := e.probe(ctx, e.Names.Node, true)
+		r, file, pages, err := e.probeObserved(ctx, e.Names.Node, true)
 		if err != nil {
 			fail("index", err)
 		}
 		s.Index = r
+		s.IndexFileBytesKnown, s.IndexPagesKnown = &file, &pages
 	}()
 	go func() {
 		defer wg.Done()
-		r, err := e.probe(ctx, e.Names.NodeB, false)
+		r, _, pages, err := e.probeObserved(ctx, e.Names.NodeB, false)
 		if err != nil {
 			fail("follower db", err)
 		}
 		s.FollowerDB = r
+		s.FollowerPagesKnown = &pages
 	}()
 	go func() {
 		defer wg.Done()

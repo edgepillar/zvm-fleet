@@ -98,7 +98,13 @@ func snapshotIndex(s *Snapshot, follower bool) *big.Int {
 		return nil
 	}
 	if follower {
+		if s.FollowerPagesKnown != nil && !*s.FollowerPagesKnown {
+			return nil
+		}
 		return sqliteValue(s.FollowerDB)
+	}
+	if s.IndexPagesKnown != nil && !*s.IndexPagesKnown {
+		return nil
 	}
 	return sqliteValue(s.Index)
 }

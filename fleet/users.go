@@ -194,6 +194,7 @@ type Record struct {
 	Hash      string `json:"hash,omitempty"`
 	Block     uint64 `json:"block,omitempty"`
 	GasUsed   uint64 `json:"gas,omitempty"`
+	GasKnown  *bool  `json:"gasKnown,omitempty"`
 	Reverted  bool   `json:"reverted,omitempty"`
 	Skipped   string `json:"skipped,omitempty"`   // nothing to do, e.g. no listing to buy
 	ConfirmMS int64  `json:"confirmMs,omitempty"` // submit → receipt seen, what the user waits
@@ -818,6 +819,8 @@ func (u *user) send(ctx context.Context, rec *Record, req *txReq) {
 			return
 		}
 		rec.Block, rec.GasUsed = r.BlockNumber.Uint64(), r.GasUsed
+		gasKnown := true
+		rec.GasKnown = &gasKnown
 		if bt, ok := u.s.blockTimeOf(wctx, r.BlockNumber); ok {
 			rec.IncludeMS = bt*1000 - submitted.UnixMilli()
 		}

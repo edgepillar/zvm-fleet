@@ -277,6 +277,46 @@ extended sample-selection policy and its stated evidence limits. Other report
 aggregates, cross-domain clock guarantees and full-system qualification remain
 separate acceptance work.
 
+User storage tables retain the union of directory keys at both snapshot endpoints,
+including a directory absent after the run or a missing entire snapshot. Missing,
+negative or explicitly unavailable values remain `n/a`; usable zero endpoints are
+retained. Directory apparent size, SQLite file bytes and SQLite pages in use are
+separate measures. Snapshot capture/replay retains independent file/page presence
+flags; an explicit true flag cannot invent an absent scalar, and false overrides
+a populated value. Legacy zero file bytes without availability remain ambiguous.
+Page products and signed changes use arbitrary-precision arithmetic. This measures
+declared endpoints, without establishing physical allocation, reclaim or causality.
+
+Summary `storage` rows retain exact decimal before/after/delta operands, independent
+availability and the actual retained confirmed-record denominator. A zero denominator
+is `n/a`, never one. Per-record byte display uses exact rational division and binary
+scaling with nearest-even rounding; these ratios do not establish unique on-chain
+transactions, whole-run coverage or a service's causal byte cost.
+
+Gas totals and action/profile means use only retained non-skipped transaction
+records with an inclusion block. New receipt capture records `gasKnown`, including
+a measured zero. A positive legacy gas field remains usable; absent/ambiguous zero
+or explicit false remains unknown. Gas coverage exposes `gasSamples`, `gasExpected`
+and `gasObservedExact`. A total or mean is available only when every retained
+included transaction in that group has usable gas. Reverted included transactions
+still use gas; orders, payouts, skipped or unobserved-inclusion records do not enter
+this gas subset. This is not proof of all chain activity or a complete run.
+
+`gasTotalExact` is an arbitrary-precision decimal string. Consumers must check
+`gasTotalKnown`; the compatibility `gasTotal` integer additionally requires
+`gasTotalUint64Known`. Exact mean numerator/denominator fields are authoritative;
+the compatibility `gasMean` float requires `gasMeanFloat64Known`. Unrepresentable
+compatibility values stay unavailable instead of wrapping or rounding silently.
+Markdown displays available gas means using exact integer floor. Measured zero
+stays visible, while missing or incomplete coverage is `n/a`.
+
+Profile transaction counts/outcomes and per-user-hour rates exclude reads, orders
+and payouts. Separate counts retain those event kinds, and nontransaction outcomes
+remain in by-action rows. Actions and errors are keyed by kind as well as action
+name, so a shared name cannot merge unlike events. Equal-frequency errors have a
+stable kind/action/error order. Latency-distribution availability, other writer
+boundaries and full-system qualification remain separate acceptance work.
+
 The existing Go CI job adds a six-minute race step and a three-minute fuzz step
 after build/vet/tests, reusing their module/toolchain inputs. The fuzzer targets
 the standard-library-only `internal/measurement` package before the broader race
