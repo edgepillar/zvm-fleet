@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"os/exec"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -56,69 +55,39 @@ func (e *Env) installProbe(ctx context.Context) error {
 }
 
 type ContainerStat struct {
-	CPU        float64 `json:"cpu"` // percent of one core
-	Mem        int64   `json:"mem"`
-	NetRx      int64   `json:"netRx"`
-	NetTx      int64   `json:"netTx"`
-	BlockRead  int64   `json:"blkRead"`
-	BlockWrite int64   `json:"blkWrite"`
+	Known      map[string]bool `json:"known,omitempty"`
+	CPU        float64         `json:"cpu"` // percent of one core
+	Mem        int64           `json:"mem"`
+	NetRx      int64           `json:"netRx"`
+	NetTx      int64           `json:"netTx"`
+	BlockRead  int64           `json:"blkRead"`
+	BlockWrite int64           `json:"blkWrite"`
 }
 
 func (e *Env) dockerStats(ctx context.Context) map[string]ContainerStat {
 	var names []string
+	allowed := map[string]bool{}
 	for _, c := range e.Names.all() {
-		if e.running[c] {
+		if e.running[c] && !allowed[c] {
 			names = append(names, c)
+			allowed[c] = true
 		}
+	}
+	if len(names) == 0 {
+		return nil
 	}
 	args := append([]string{"stats", "--no-stream", "--format", "{{json .}}"}, names...)
 	out, err := exec.CommandContext(ctx, "docker", args...).Output()
 	if err != nil {
 		return nil
 	}
-	res := map[string]ContainerStat{}
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		var row struct{ Name, CPUPerc, MemUsage, NetIO, BlockIO string }
-		if json.Unmarshal([]byte(line), &row) != nil {
-			continue
-		}
-		cpu, _ := strconv.ParseFloat(strings.TrimSuffix(row.CPUPerc, "%"), 64)
-		mem, _ := sizePair(row.MemUsage)
-		rx, tx := sizePair(row.NetIO)
-		br, bw := sizePair(row.BlockIO)
-		res[row.Name] = ContainerStat{CPU: cpu, Mem: mem, NetRx: rx, NetTx: tx, BlockRead: br, BlockWrite: bw}
-	}
-	return res
-}
-
-// parseSize reads docker's sizes: decimal units for I/O ("452MB"), binary for
-// memory ("468.9MiB").
-func parseSize(s string) int64 {
-	s = strings.TrimSpace(s)
-	i := strings.IndexFunc(s, func(r rune) bool { return (r < '0' || r > '9') && r != '.' })
-	num, unit := s, ""
-	if i >= 0 {
-		num, unit = s[:i], strings.TrimSpace(s[i:])
-	}
-	v, _ := strconv.ParseFloat(num, 64)
-	mult := map[string]float64{
-		"": 1, "B": 1, "kB": 1e3, "KB": 1e3, "MB": 1e6, "GB": 1e9, "TB": 1e12,
-		"KiB": 1 << 10, "MiB": 1 << 20, "GiB": 1 << 30, "TiB": 1 << 40,
-	}[unit]
-	if mult == 0 {
-		mult = 1
-	}
-	return int64(v * mult)
-}
-
-func sizePair(s string) (int64, int64) {
-	a, b, _ := strings.Cut(s, "/")
-	return parseSize(a), parseSize(b)
+	return dockerRows(out, allowed)
 }
 
 type DirSize struct {
-	Bytes     int64 `json:"bytes"`
-	Allocated int64 `json:"allocated"`
+	Known     map[string]bool `json:"known,omitempty"`
+	Bytes     int64           `json:"bytes"`
+	Allocated int64           `json:"allocated"`
 }
 
 func (e *Env) dirSizes(ctx context.Context, only ...string) map[string]DirSize {
@@ -143,15 +112,9 @@ func (e *Env) dirSizes(ctx context.Context, only ...string) map[string]DirSize {
 			if err != nil {
 				return
 			}
-			for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
-				f := strings.Fields(line)
-				if len(f) != 3 {
-					continue
-				}
-				b, _ := strconv.ParseInt(f[1], 10, 64)
-				k, _ := strconv.ParseInt(f[2], 10, 64)
+			for path, size := range directoryRows(raw, d.paths) {
 				mu.Lock()
-				out[d.container+":"+f[0]] = DirSize{Bytes: b, Allocated: k << 10}
+				out[d.container+":"+path] = size
 				mu.Unlock()
 			}
 		}()

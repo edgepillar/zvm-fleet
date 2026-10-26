@@ -61,10 +61,12 @@ func directoryValue(s *Snapshot, key string, allocated bool) (*big.Int, bool) {
 		return nil, false
 	}
 	n := d.Bytes
+	keyName := "bytes"
 	if allocated {
 		n = d.Allocated
+		keyName = "allocated"
 	}
-	if n < 0 {
+	if n < 0 || !resourceKnown(d.Known, keyName) {
 		return nil, true
 	}
 	return big.NewInt(n), true
@@ -78,7 +80,7 @@ func writeValue(s *Snapshot, key string) (*big.Int, bool) {
 	if !present {
 		return nil, false
 	}
-	if c.BlockWrite < 0 {
+	if c.BlockWrite < 0 || !resourceKnown(c.Known, "blkWrite") {
 		return nil, true
 	}
 	return big.NewInt(c.BlockWrite), true

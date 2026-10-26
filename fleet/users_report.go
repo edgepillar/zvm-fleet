@@ -91,7 +91,7 @@ type Window struct {
 	L1MomsKnown   bool      `json:"l1MomentumsKnown"`
 	confirm       []float64
 	read          []float64
-	samples       int
+	Resources     ResourceObservations `json:"resourceObservations"`
 	l2, l1        sampleCounterWindow
 }
 
@@ -121,6 +121,10 @@ func readJSONL(path string, each func([]byte)) error {
 }
 
 func SummarizeUsers(dir string) (*UsersSummary, error) {
+	names, err := reportNames(dir)
+	if err != nil {
+		return nil, err
+	}
 	s := &UsersSummary{}
 	var meta struct {
 		Label string         `json:"label"`
@@ -300,22 +304,7 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 			return
 		}
 		w := window(at)
-		w.samples++
-		if q := num(sm.Relayer["queued"]); q > w.Queued {
-			w.Queued = q
-		}
-		for name, c := range sm.Containers {
-			switch {
-			case strings.HasSuffix(name, "-node") || name == "zvm-node":
-				w.NodeCPU += c.CPU
-				w.NodeMem = max(w.NodeMem, c.Mem)
-			case strings.Contains(name, "op-reth") && !strings.HasSuffix(name, "-b"):
-				w.EngineCPU += c.CPU
-				w.EngineMem = max(w.EngineMem, c.Mem)
-			case strings.Contains(name, "relayer"):
-				w.RelayerCPU += c.CPU
-			}
-		}
+		w.observeResources(sm, names)
 		l2Known, l1Known := sm.L2 > 0, sm.L1 > 0
 		if sm.Known != nil {
 			l2Known, l1Known = sm.Known.L2, sm.Known.L1
@@ -331,10 +320,6 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 		w.TxPerSec = float64(w.Txs) / secs
 		t.PeakTxPerSec = max(t.PeakTxPerSec, w.TxPerSec)
 		w.Confirm, w.Read = dist(w.confirm), dist(w.read)
-		if w.samples > 0 {
-			n := float64(w.samples)
-			w.NodeCPU, w.EngineCPU, w.RelayerCPU = w.NodeCPU/n, w.EngineCPU/n, w.RelayerCPU/n
-		}
 		w.L2Blocks, w.L2BlocksKnown = w.l2.result()
 		w.L1Moms, w.L1MomsKnown = w.l1.result()
 	}
@@ -468,14 +453,21 @@ func UsersMarkdown(s *UsersSummary) string {
 			msOrBlank(a.Latency.P50), msOrBlank(a.Latency.P90))
 	}
 
-	fmt.Fprintf(&b, "\n## Over time (%s windows)\n\nCPU is the mean over the window's samples, in percent of one core; memory is the window's peak.\n\n", WindowSize)
+	fmt.Fprintf(&b, "\n## Over time (%s windows)\n\nCPU is the mean over that metric's usable observations, in percent of one core; memory is its observed peak. Missing metrics are `n/a`. Exact profile names select the node, primary engine candidates and relayer.\n\n", WindowSize)
 	b.WriteString("L2 blocks and momentums require two distinct, ordered sample times with usable nondecreasing counters. Missing observations, counter resets or conflicting times produce `n/a`; a measured zero needs both endpoints. These are observed sample spans within each window, excluding unobserved edges.\n\n")
-	b.WriteString("| Window (UTC) | Txs | Tx/s | Failed | Confirm p50 s | p90 s | Load p50 ms | Relayer queue max | L2 blocks | Momentums | node CPU | op-reth CPU | relayer CPU | node MiB | op-reth MiB |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+	b.WriteString("| Window (UTC) | Txs | Tx/s | Failed | Confirm p50 s | p90 s | Load p50 ms | Relayer queue max | L2 blocks | Momentums | node CPU | engine CPU | relayer CPU | node MiB | engine MiB |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
 	for _, w := range s.Windows {
-		fmt.Fprintf(&b, "| %s | %s | %.2f | %d | %s | %s | %.0f | %d | %s | %s | %.1f | %.1f | %.1f | %s | %s |\n",
+		fmt.Fprintf(&b, "| %s | %s | %.2f | %d | %s | %s | %.0f | %s | %s | %s | %s | %s | %s | %s | %s |\n",
 			w.Start.UTC().Format("15:04"), n64(w.Txs), w.TxPerSec, w.Failed, secs(w.Confirm.P50), secs(w.Confirm.P90), w.Read.P50,
-			w.Queued, sampleWindowCount(w.L2Blocks, w.L2BlocksKnown), sampleWindowCount(w.L1Moms, w.L1MomsKnown),
-			w.NodeCPU, w.EngineCPU, w.RelayerCPU, mib(w.NodeMem), mib(w.EngineMem))
+			sampleWindowCount(w.Queued, w.Resources.RelayerQueued > 0), sampleWindowCount(w.L2Blocks, w.L2BlocksKnown), sampleWindowCount(w.L1Moms, w.L1MomsKnown),
+			resourcePercent(w.NodeCPU, w.Resources.NodeCPU), resourcePercent(w.EngineCPU, w.Resources.EngineCPU), resourcePercent(w.RelayerCPU, w.Resources.RelayerCPU),
+			resourceMemory(w.NodeMem, w.Resources.NodeMem), resourceMemory(w.EngineMem, w.Resources.EngineMem))
+	}
+	b.WriteString("\n### Resource observations\n\nCounts cover accepted sample rows and each metric's usable observations. They do not establish complete JSONL or whole-run coverage. A present numeric zero can be measured; older captures that already replaced failed parsing with zero cannot be reconstructed.\n\n| Window (UTC) | Samples | Node CPU | Engine CPU | Relayer CPU | Node memory | Engine memory | Relayer queue |\n|---|---:|---:|---:|---:|---:|---:|---:|\n")
+	for _, w := range s.Windows {
+		c := w.Resources
+		fmt.Fprintf(&b, "| %s | %d | %d | %d | %d | %d | %d | %d |\n", w.Start.UTC().Format("15:04"), c.Samples,
+			c.NodeCPU, c.EngineCPU, c.RelayerCPU, c.NodeMem, c.EngineMem, c.RelayerQueued)
 	}
 
 	if p := s.Phase; p != nil && p.Before != nil && p.After != nil {

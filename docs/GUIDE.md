@@ -122,7 +122,8 @@ flags record parsing/read success, without asserting service health or finality.
 Legacy positive counters retain their existing meaning, while legacy zero is
 ambiguous. Summary JSON includes `l2BlocksKnown` and `l1MomentumsKnown`; consumers
 must use them before interpreting the corresponding numeric fields. This does
-not qualify other resource columns, corrupt JSONL handling or phase scheduling.
+not alone establish resource-column or phase-readiness validity, or complete
+JSONL coverage.
 
 Before a phase, readiness requires usable relayer queue/pending counts, an L1
 momentum and the applicable L2 fee observation. An unavailable or invalid input
@@ -141,6 +142,32 @@ including immediate successful checks. Read-success does not assert freshness,
 authentication, finality or complete network health. A timeout still permits
 the existing phase fallback and remains visibly `gaveUp: true`; caller
 cancellation returns before the next phase starts.
+
+Resource capture scopes Docker stats to selected running containers; an empty
+selection issues no Docker command. Foreign rows are ignored, duplicate names
+or directory paths become unavailable, and malformed Docker JSON invalidates the
+batch. CPU, memory, I/O and directory fields retain independent `known` flags.
+Missing, invalid or explicitly unavailable fields cannot become measured zeros
+when a snapshot or sample is replayed. Size conversion uses bounded exact
+decimal scaling with truncation and refuses unknown units or signed-width
+overflow. Docker's rounded human sizes still cannot establish exact physical
+bytes or recover precision already lost in their display.
+
+User resource tables use exact names from `names.json`, including primary
+op-geth/reth alternatives in v1, DP and devnet profiles. An absent historical
+profile retains v1; an invalid present profile stops the report. CPU means use
+each metric's usable observations; memory peaks and queue maxima require their
+own usable inputs. Primary engines observed together are combined per sample;
+an unusable present component or overflow makes that aggregate unavailable for
+that metric. Followers and unrelated containers are excluded.
+
+Summary JSON exposes `resourceObservations` counts, also printed in a separate
+table. A zero count means `n/a`; measured zeros retain nonzero counts. These
+counts cover accepted sample rows, not complete JSONL or whole-run coverage.
+Legacy numeric fields retain presence-based compatibility; captures that
+already substituted zero for failed parsing cannot be reconstructed. Corrupt
+or incomplete JSONL handling, remaining ratios and full-system qualification
+remain separate acceptance work.
 
 The existing Go CI job adds a six-minute race step and a three-minute fuzz step
 after build/vet/tests, reusing their module/toolchain inputs. The fuzzer targets

@@ -13,24 +13,31 @@ import (
 	"github.com/Zenoglyphs-VM/zvm-node/bench"
 )
 
-// Report renders the phase files in dir as markdown tables. Referenced raw runs
-// must be available and match their phase metadata. Counters are recomputed from
-// those records, so a correction costs a re-render, not a re-run.
-func Report(dir string) (string, int, error) {
+func reportNames(dir string) (Names, error) {
 	// Init() writes this alongside the phase files; its absence means a run
 	// from before profiles existed, which was always chain 70.
 	names := V1Names()
 	if raw, err := os.ReadFile(filepath.Join(dir, "names.json")); err == nil {
 		var selected *Names
 		if err := decodeMeasurementJSON(bytes.NewReader(raw), &selected); err != nil {
-			return "", 0, fmt.Errorf("names.json: %w", err)
+			return Names{}, fmt.Errorf("names.json: %w", err)
 		}
 		if selected == nil || selected.Node == "" {
-			return "", 0, fmt.Errorf("names.json: missing node profile")
+			return Names{}, fmt.Errorf("names.json: missing node profile")
 		}
 		names = *selected
 	} else if !os.IsNotExist(err) {
-		return "", 0, fmt.Errorf("names.json: %w", err)
+		return Names{}, fmt.Errorf("names.json: %w", err)
+	}
+	return names, nil
+}
+
+// Report renders phase files from usable retained raw inputs. Re-rendering
+// recomputes their counters without repeating the benchmark.
+func Report(dir string) (string, int, error) {
+	names, err := reportNames(dir)
+	if err != nil {
+		return "", 0, err
 	}
 	root, err := os.OpenRoot(dir)
 	if err != nil {
