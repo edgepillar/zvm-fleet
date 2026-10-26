@@ -166,9 +166,8 @@ Summary JSON exposes `resourceObservations` counts, also printed in a separate
 table. A zero count means `n/a`; measured zeros retain nonzero counts. These
 counts cover accepted sample rows, not complete JSONL or whole-run coverage.
 Legacy numeric fields retain presence-based compatibility; captures that
-already substituted zero for failed parsing cannot be reconstructed. Corrupt
-or incomplete JSONL handling, remaining ratios and full-system qualification
-remain separate acceptance work.
+already substituted zero for failed parsing cannot be reconstructed. Remaining
+ratios and full-system qualification remain separate acceptance work.
 
 User-report JSONL replay refuses malformed or ambiguous completed rows, blank
 rows, invalid UTF-8, duplicate object keys and unusable essential record/sample
@@ -189,13 +188,46 @@ of run completion, authenticity or durability of the original writer.
 Rows retain the 16 MiB bound and add limits of 128 nesting levels and one million
 JSON tokens. Reports refuse spans requiring more than 10,000 half-hour windows
 rather than allocating an unbounded gap. Counts and rates describe retained
-accepted records, not unobserved actions or a completed benchmark. Writer-error
-propagation, remaining ratios and whole-system qualification remain open.
+accepted records, not unobserved actions or a completed benchmark. Remaining
+ratios and whole-system qualification remain open.
 
 Sample `errors` and snapshot diagnostics now distinguish unavailable, garbled,
 incomplete or invalid Docker observations from an empty container selection.
 These messages are fixed concise reasons; they do not copy command output,
 stderr or endpoint credentials into the evidence.
+
+User records and streamed samples retain their first encoding/write/flush error
+and refuse later rows. Finalization still flushes an earlier accepted prefix,
+closes once, and returns both flush and close failures. Records retain the
+64 KiB buffer and periodic progress flush; samples flush after each row. Counts
+updated after a buffered append describe accepted records, not durable storage.
+There is no `fsync` or crash/power-loss qualification. A failed stream is never
+automatically retried or repaired.
+
+A user simulation creates `records.jsonl` exclusively, refusing an existing file
+before it can truncate retained records. Metadata encoding/writing and final
+summary failures reach the caller. Receipt and payout observers survive the
+normal action deadline, but honor run cancellation and writer failure. Every
+record producer, including progress/upkeep and payout observation, is joined
+before final flush/close and summary replay. Exhausting the existing thirty-minute
+post-run payout budget cancels and joins the remaining observers and fails the
+run; their cancellation does not claim the underlying withdrawal failed or was
+replaced.
+
+`StreamSamples` returns a `func() error` close function. Configure it outside
+`RunPhases`, close it after phases return, and check its result. Concurrent phase
+execution/configuration and a second active sample writer are refused. Closing
+the stream during active phases cancels that owner as a stream failure. Ordinary
+workload errors keep the existing continue-to-next-phase policy, while the final
+return value preserves those errors. Sample-stream failure stops later phases.
+Phase/state save errors are joined with the original failures. The users CLI
+closes samples before replay and preserves run, stream and report errors even
+when it can write a useful partial report. It prints success only when all pass.
+
+Sample append mode is retained and does not assign a new cohort identity to old
+data. Fresh output directories and explicit input evidence remain necessary;
+these checks do not prove cross-file atomicity, whole-run completeness, arbitrary
+workload cooperation with cancellation or the durability of stored bytes.
 
 The existing Go CI job adds a six-minute race step and a three-minute fuzz step
 after build/vet/tests, reusing their module/toolchain inputs. The fuzzer targets

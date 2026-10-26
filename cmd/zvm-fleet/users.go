@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -115,14 +116,19 @@ func benchUsers(args []string) error {
 	runErr := f.RunPhases(ctx, []fleet.Phase{phase})
 	// The report is written even when the run was cut short: it is rebuilt from
 	// the records streamed so far.
-	if err := writeUsersReport(*out, filepath.Join(*out, "USERS.md")); err != nil {
-		fmt.Fprintln(os.Stderr, "report:", err)
-	}
-	if runErr != nil {
-		return runErr
+	if err := finishUsersRun(runErr, closeSamples, *out, filepath.Join(*out, "USERS.md")); err != nil {
+		return err
 	}
 	fmt.Printf("users ran %s → %s\n", time.Since(start).Round(time.Second), filepath.Join(*out, "USERS.md"))
 	return nil
+}
+
+// Close sampling before replay. A partial report can still be useful after a
+// failed run, but must not turn a run, stream or report error into success.
+func finishUsersRun(runErr error, closeSamples func() error, in, out string) error {
+	streamErr := closeSamples()
+	reportErr := writeUsersReport(in, out)
+	return errors.Join(runErr, streamErr, reportErr)
 }
 
 // scaleMix keeps the mix's proportions at n users, handing the rounding

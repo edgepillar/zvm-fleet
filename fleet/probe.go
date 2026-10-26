@@ -318,7 +318,9 @@ func (e *Env) sampleLoop(ctx context.Context, rec *PhaseRecord) {
 		rec.Samples = append(rec.Samples, s)
 		rec.mu.Unlock()
 		if e.onSample != nil {
-			e.onSample(s)
+			if err := e.onSample(s); err != nil {
+				return
+			}
 		}
 		select {
 		case <-ctx.Done():

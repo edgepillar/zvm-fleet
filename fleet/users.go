@@ -1,7 +1,6 @@
 package fleet
 
 import (
-	"bufio"
 	"context"
 	"crypto/ecdsa"
 	"encoding/json"
@@ -204,14 +203,13 @@ type Record struct {
 }
 
 type sim struct {
-	e     *Env
-	o     UserOptions
-	out   *os.File
-	w     *bufio.Writer
-	mu    sync.Mutex
-	users []*user
-	start time.Time
-	end   time.Time
+	jsonlOutput
+	e         *Env
+	o         UserOptions
+	users     []*user
+	start     time.Time
+	end       time.Time
+	followCtx context.Context // survives the action deadline, but not run cancellation
 
 	pid       int
 	lp        common.Address
@@ -243,11 +241,9 @@ type user struct {
 }
 
 func (s *sim) emit(r *Record) {
-	raw, _ := json.Marshal(r)
-	s.mu.Lock()
-	s.w.Write(raw)
-	s.w.WriteByte('\n')
-	s.mu.Unlock()
+	if err := s.append(r, false); err != nil {
+		return
+	}
 	if r.Kind == "tx" && r.Skipped == "" {
 		s.txs.Add(1)
 		if !r.OK {
@@ -273,23 +269,28 @@ func UsersPhase(o UserOptions) Phase {
 	}
 }
 
-func (e *Env) runUsers(ctx context.Context, p *PhaseRecord, o UserOptions) error {
-	f, err := os.Create(filepath.Join(e.Out, "records.jsonl"))
+func (e *Env) runUsers(ctx context.Context, p *PhaseRecord, o UserOptions) (result error) {
+	f, err := os.OpenFile(filepath.Join(e.Out, "records.jsonl"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	s := &sim{e: e, o: o, out: f, w: bufio.NewWriterSize(f, 1<<16)}
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	s := &sim{e: e, o: o, jsonlOutput: newJSONLOutput(f, cancel), followCtx: ctx}
 	defer func() {
-		s.mu.Lock()
-		s.w.Flush()
-		s.mu.Unlock()
+		if err := s.finish(); err != nil && !errors.Is(result, err) {
+			result = errors.Join(result, err)
+		}
 	}()
 	meta := map[string]any{"label": o.Label, "mix": o.Mix, "duration": o.Duration.String(), "ramp": o.Ramp.String(), "pace": o.Pace,
 		"chainId": e.Rollup.L2ChainID, "l1ChainId": e.Rollup.L1ChainID}
 	p.set("users", meta)
-	if raw, err := json.MarshalIndent(meta, "", " "); err == nil {
-		os.WriteFile(filepath.Join(e.Out, "users.json"), raw, 0o644)
+	raw, err := json.MarshalIndent(meta, "", " ")
+	if err != nil {
+		return fmt.Errorf("encoding user metadata: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(e.Out, "users.json"), raw, 0o644); err != nil {
+		return fmt.Errorf("writing user metadata: %w", err)
 	}
 
 	prepStart := time.Now()
@@ -297,7 +298,12 @@ func (e *Env) runUsers(ctx context.Context, p *PhaseRecord, o UserOptions) error
 		return fmt.Errorf("preparing users: %w", err)
 	}
 	p.set("prepareSeconds", time.Since(prepStart).Seconds())
+	return s.runSimulation(ctx, p)
+}
 
+// runSimulation joins every producer before it closes the record stream.
+func (s *sim) runSimulation(ctx context.Context, p *PhaseRecord) error {
+	e, o := s.e, s.o
 	s.start = time.Now()
 	s.end = s.start.Add(o.Duration)
 	p.set("simStart", s.start.UTC())
@@ -326,10 +332,12 @@ func (e *Env) runUsers(ctx context.Context, p *PhaseRecord, o UserOptions) error
 	}
 	upkeep := make(chan struct{})
 	go func() { defer close(upkeep); s.upkeep(simCtx, p) }()
-	go s.progress(simCtx)
+	progress := make(chan struct{})
+	go func() { defer close(progress); s.progress(simCtx) }()
 
 	wg.Wait()
 	<-upkeep
+	<-progress
 	s.pending.Wait() // bounded by the receipt timeout
 	p.set("simEnd", time.Now().UTC())
 	// Withdrawals already initiated are followed to their payout, bounded:
@@ -337,20 +345,25 @@ func (e *Env) runUsers(ctx context.Context, p *PhaseRecord, o UserOptions) error
 	e.Log.Info("users done; following open withdrawals to their payout")
 	done := make(chan struct{})
 	go func() { s.wg.Wait(); close(done) }()
+	followTimer := time.NewTimer(30 * time.Minute)
+	defer followTimer.Stop()
 	select {
 	case <-done:
-	case <-time.After(30 * time.Minute):
+	case <-followTimer.C:
 		e.Log.Warn("withdrawals still unpaid 30 minutes after the run")
+		s.cancel(errors.New("withdrawal follow-up budget exhausted"))
+		<-done
 	case <-ctx.Done():
+		<-done
 	}
-	s.mu.Lock()
-	s.w.Flush()
-	s.mu.Unlock()
+	if err := s.finish(); err != nil {
+		return errors.Join(err, context.Cause(ctx))
+	}
 	sum, err := SummarizeUsers(e.Out)
 	if err == nil {
 		p.set("summary", sum.Totals)
 	}
-	return nil
+	return errors.Join(err, context.Cause(ctx))
 }
 
 func (s *sim) progress(ctx context.Context) {
@@ -362,9 +375,9 @@ func (s *sim) progress(ctx context.Context) {
 			return
 		case <-t.C:
 		}
-		s.mu.Lock()
-		s.w.Flush()
-		s.mu.Unlock()
+		if err := s.flush(); err != nil {
+			return
+		}
 		s.e.Log.Info("users progress", "elapsed", time.Since(s.start).Round(time.Minute),
 			"txs", s.txs.Load(), "failed", s.fails.Load())
 	}
@@ -765,7 +778,7 @@ func (u *user) send(ctx context.Context, rec *Record, req *txReq) {
 		rec.Error = err.Error()
 		u.s.emit(rec)
 		if u.key != nil && (strings.Contains(err.Error(), "nonce") || strings.Contains(err.Error(), "replacement")) {
-			u.resync(context.WithoutCancel(ctx))
+			u.resync(u.s.followContext(ctx))
 		}
 		return
 	}
@@ -777,7 +790,7 @@ func (u *user) send(ctx context.Context, rec *Record, req *txReq) {
 		}
 		// The receipt is waited for past the run's end: a transaction the user
 		// sent in its last minute is still part of what it saw.
-		wctx := context.WithoutCancel(ctx)
+		wctx := u.s.followContext(ctx)
 		r, err := u.receipt(wctx, tx.Hash(), 10*time.Minute)
 		rec.ConfirmMS = time.Since(submitted).Milliseconds()
 		if err != nil {
@@ -1037,8 +1050,15 @@ func (u *user) buy(ctx context.Context, rec *Record) (*txReq, error) {
 
 // followWithdrawal waits for the vault to pay a withdrawal out on NoM and
 // records how long the user waited for their ZNN.
+func (s *sim) followContext(fallback context.Context) context.Context {
+	if s.followCtx != nil {
+		return s.followCtx
+	}
+	return fallback
+}
+
 func (u *user) followWithdrawal(ctx context.Context, r *types.Receipt) {
-	ctx = context.WithoutCancel(ctx)
+	ctx = u.s.followContext(ctx)
 	var id uint64
 	for _, l := range r.Logs {
 		if l.Address == rollup.BridgeAddr && len(l.Topics) == 4 && l.Topics[0] == bridge.TopicWithdrawalInitiated {
@@ -1064,7 +1084,13 @@ func (u *user) followWithdrawal(ctx context.Context, r *types.Receipt) {
 				s.emit(rec)
 				return
 			}
-			time.Sleep(15 * time.Second)
+			select {
+			case <-ctx.Done():
+				rec.Error = "payout observation canceled"
+				s.emit(rec)
+				return
+			case <-time.After(15 * time.Second):
+			}
 		}
 		rec.Error = "not paid within 90 minutes of the withdrawal"
 		s.emit(rec)

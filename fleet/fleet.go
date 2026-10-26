@@ -14,6 +14,7 @@ package fleet
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -118,8 +119,10 @@ type Env struct {
 	http     *http.Client
 	running  map[string]bool
 	state    State
-	onSample func(Sample)       // also sent each sample, when set
+	onSample func(Sample) error // also sent each sample, when set
 	owned    map[int][]*big.Int // NFT ids each seller holds, from the list phase
+	runMu    sync.Mutex         // protects phase execution and stream configuration
+	stream   *jsonlOutput
 }
 
 // State survives between invocations, so phases can be re-run one at a time.
@@ -205,17 +208,26 @@ type Phase struct {
 
 // StreamSamples appends every phase sample to <out>/samples.jsonl as it is
 // taken, for runs long enough that holding them until the phase ends is a
-// risk. Call it after Init.
-func (e *Env) StreamSamples() (func(), error) {
+// risk. Call it after Init and check the returned close function's error after
+// RunPhases. Existing samples are appended, not assigned a new run identity.
+func (e *Env) StreamSamples() (func() error, error) {
+	if !e.runMu.TryLock() {
+		return nil, errors.New("cannot configure a sample stream during phase execution")
+	}
+	defer e.runMu.Unlock()
+	if e.stream != nil {
+		if closed, _ := e.stream.status(); !closed {
+			return nil, errors.New("sample stream already active")
+		}
+	}
 	f, err := os.OpenFile(filepath.Join(e.Out, "samples.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return nil, err
 	}
-	e.onSample = func(s Sample) {
-		raw, _ := json.Marshal(s)
-		f.Write(append(raw, '\n'))
-	}
-	return func() { f.Close() }, nil
+	stream := newJSONLOutput(f, nil)
+	e.stream = &stream
+	e.onSample = func(s Sample) error { return stream.append(s, true) }
+	return stream.finish, nil
 }
 
 // New prepares an environment: HTTP client, running containers, the probe
@@ -246,8 +258,21 @@ func (e *Env) Init(ctx context.Context) error {
 }
 
 // RunPhases runs phases in order, each wrapped in snapshots and sampling, and
-// writes one JSON file per phase. A failed phase is recorded and the next runs.
-func (e *Env) RunPhases(ctx context.Context, phases []Phase) error {
+// writes one JSON file per phase. Ordinary workload failures retain the next
+// phase policy, but are also returned. A stream failure stops further phases.
+func (e *Env) RunPhases(ctx context.Context, phases []Phase) (result error) {
+	if !e.runMu.TryLock() {
+		return errors.New("phase execution already active")
+	}
+	defer e.runMu.Unlock()
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	if e.stream != nil {
+		e.stream.bindPhase(cancel)
+		defer e.stream.bindPhase(nil)
+		defer func() { result = errors.Join(result, e.stream.flush()) }()
+	}
+	var failures error
 	// The healer runs for the whole benchmark, not per phase: a gap opened in
 	// one phase stalls the next.
 	h := &healer{e: e}
@@ -257,22 +282,22 @@ func (e *Env) RunPhases(ctx context.Context, phases []Phase) error {
 		go h.run(hctx)
 	}
 	for _, ph := range phases {
-		if ctx.Err() != nil {
-			return ctx.Err()
+		if err := context.Cause(ctx); err != nil {
+			return errors.Join(failures, err)
 		}
 		// Start from a quiet chain, as `zvm bench suite` does between steps:
 		// otherwise a phase measures what the last one left behind. Measured on
 		// chain 71 on 2026-09-17: saturation left 8,908 queued at 24x the fusion
 		// price, and the next phase would have run inside that.
 		settled := e.settleState(ctx, 15*time.Minute)
-		if err := ctx.Err(); err != nil {
-			return err
+		if err := context.Cause(ctx); err != nil {
+			return errors.Join(failures, err)
 		}
 		rec := &PhaseRecord{ID: ph.ID, Title: ph.Title, StartedAt: time.Now().UTC(), Data: map[string]any{"settle": settled}}
 		e.Log.Info("phase", "id", ph.ID, "title", ph.Title)
 		rec.Before = e.snapshot(ctx)
-		if err := ctx.Err(); err != nil {
-			return err
+		if err := context.Cause(ctx); err != nil {
+			return errors.Join(failures, err)
 		}
 
 		sctx, stop := context.WithCancel(ctx)
@@ -285,6 +310,10 @@ func (e *Env) RunPhases(ctx context.Context, phases []Phase) error {
 		err := ph.Run(ctx, e, rec)
 		stop()
 		wg.Wait()
+		if e.stream != nil {
+			err = errors.Join(err, e.stream.flush())
+		}
+		err = errors.Join(err, context.Cause(ctx))
 
 		rec.After = e.snapshot(ctx)
 		rec.EndedAt = time.Now().UTC()
@@ -295,17 +324,18 @@ func (e *Env) RunPhases(ctx context.Context, phases []Phase) error {
 		}
 		if err != nil {
 			rec.Error = err.Error()
+			failures = errors.Join(failures, fmt.Errorf("phase %s: %w", ph.ID, err))
 			e.Log.Error("phase failed", "id", ph.ID, "err", err)
 		}
 		if err := e.save(rec); err != nil {
-			return err
+			return errors.Join(failures, err)
 		}
 		if err := e.saveState(); err != nil {
-			return err
+			return errors.Join(failures, err)
 		}
 		e.Log.Info("phase done", "id", ph.ID, "took", rec.EndedAt.Sub(rec.StartedAt).Round(time.Second))
 	}
-	return nil
+	return failures
 }
 
 func (e *Env) save(rec *PhaseRecord) error {
