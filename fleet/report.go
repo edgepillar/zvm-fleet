@@ -1,11 +1,13 @@
 package fleet
 
 import (
-	"encoding/json"
+	"bytes"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Zenoglyphs-VM/zvm-node/bench"
@@ -19,7 +21,16 @@ func Report(dir string) (string, int, error) {
 	// from before profiles existed, which was always chain 70.
 	names := V1Names()
 	if raw, err := os.ReadFile(filepath.Join(dir, "names.json")); err == nil {
-		json.Unmarshal(raw, &names)
+		var selected *Names
+		if err := decodeMeasurementJSON(bytes.NewReader(raw), &selected); err != nil {
+			return "", 0, fmt.Errorf("names.json: %w", err)
+		}
+		if selected == nil || selected.Node == "" {
+			return "", 0, fmt.Errorf("names.json: missing node profile")
+		}
+		names = *selected
+	} else if !os.IsNotExist(err) {
+		return "", 0, fmt.Errorf("names.json: %w", err)
 	}
 	root, err := os.OpenRoot(dir)
 	if err != nil {
@@ -38,7 +49,7 @@ func Report(dir string) (string, int, error) {
 			return "", 0, err
 		}
 		p := new(PhaseRecord)
-		if err := json.Unmarshal(raw, p); err != nil {
+		if err := decodeMeasurementJSON(bytes.NewReader(raw), p); err != nil {
 			return "", 0, fmt.Errorf("%s: %w", f, err)
 		}
 		// Recompute each run's summary from the records it saved, so a
@@ -57,7 +68,7 @@ func Report(dir string) (string, int, error) {
 				return "", 0, fmt.Errorf("%s run %d: reading raw run: %w", filepath.Base(f), i, err)
 			}
 			var res *bench.Result
-			if err := json.Unmarshal(rec, &res); err != nil {
+			if err := decodeMeasurementJSON(bytes.NewReader(rec), &res); err != nil {
 				return "", 0, fmt.Errorf("%s run %d: decoding raw run: %w", filepath.Base(f), i, err)
 			}
 			if res == nil || res.Scenario != r.Scenario || res.Lane != r.Lane || res.Wallets != r.Wallets {
@@ -97,63 +108,73 @@ func Report(dir string) (string, int, error) {
 			}
 			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %g | %s | %s | %s | %.1f | %.1f | %.1f | %s | %.0f | %.0f | %.1f | %s | %d | %.0f |\n",
 				p.ID, r.Scenario, r.Lane, commas(int64(r.Wallets)), commas(int64(r.Senders)), r.Rate, commas(int64(s.Included)), commas(int64(s.Failed)),
-				commas(int64(s.Reverted)), s.Sustained, float64(s.Latency.P50)/1000, float64(s.Latency.P90)/1000, commas(int64(s.GasMean)),
+				commas(int64(s.Reverted)), s.Sustained, float64(s.Latency.P50)/1000, float64(s.Latency.P90)/1000, unsignedCommas(s.GasMean),
 				s.BytesPerTx, s.PlasmaPerTx, s.NomBlocksPerMomentum, commas(int64(s.TxPerBlockMax)), s.BuildMsMax, float64(r.PrepareMS)/1000)
 		}
 	}
 
-	b.WriteString("\n## Storage written, per phase\n\nApparent bytes (`du -b`) inside each container, after minus before; the index is SQLite pages in use. The engine columns are whichever client ran: op-geth's chaindata and ancient as apparent bytes, or op-reth's db and static_files as allocated bytes — reth's MDBX is one sparse file mapped at a fixed 4 GiB, so only what the filesystem gave it moves.\n\n| Phase | L2 blocks | Txs derived | NoM data B | znnd pillar nom | znnd rpc nom | znnd rpc log | engine state | engine history | index (node) | follower db | media | engine writes | node writes | znnd rpc writes |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+	b.WriteString("\n## Storage written, per phase\n\nApparent bytes (`du -b`) inside each container, after minus before; the index is SQLite pages in use. The engine columns are whichever client ran: op-geth's chaindata and ancient as apparent bytes, or op-reth's db and static_files as allocated bytes — reth's MDBX is one sparse file mapped at a fixed 4 GiB, so only what the filesystem gave it moves.\n\n`n/a` marks missing, invalid or incomplete endpoints or a decreasing cumulative counter. Zero requires usable endpoints; storage deltas can be negative.\n\n| Phase | L2 blocks | Txs derived | NoM data B | znnd pillar nom | znnd rpc nom | znnd rpc log | engine state | engine history | index (node) | follower db | media | engine writes | node writes | znnd rpc writes |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
 	for _, p := range phases {
-		if p.Before == nil || p.After == nil {
-			continue
-		}
 		d := func(key string) string {
-			return signedBytes(p.After.Dirs[key].Bytes - p.Before.Dirs[key].Bytes)
+			before, _ := directoryValue(p.Before, key, false)
+			after, _ := directoryValue(p.After, key, false)
+			return measurementBytes(signedDifference(before, after))
 		}
-		idx := func(s *Snapshot) int64 {
-			if s == nil || s.Index == nil {
-				return 0
-			}
-			return (s.Index.Pages - s.Index.FreePages) * s.Index.PageSize
+		w := func(key string) string {
+			before, _ := writeValue(p.Before, key)
+			after, _ := writeValue(p.After, key)
+			return measurementBytes(counterDifference(before, after))
 		}
-		fol := func(s *Snapshot) int64 {
-			if s == nil || s.FollowerDB == nil {
-				return 0
-			}
-			return (s.FollowerDB.Pages - s.FollowerDB.FreePages) * s.FollowerDB.PageSize
-		}
-		w := func(c string) string {
-			return signedBytes(p.After.Containers[c].BlockWrite - p.Before.Containers[c].BlockWrite)
-		}
-		// Summed across both clients' key names, because only the one that
-		// ran has any bytes under it, and read with the measure that matches
-		// how that client stores: apparent for op-geth's real files, allocated
-		// for op-reth's sparse MDBX map (D2, see Names.engineDirs).
 		engine := func(kind string) string {
-			var n int64
-			for _, ed := range names.engineDirs(kind) {
-				after, before := p.After.Dirs[ed.Key], p.Before.Dirs[ed.Key]
-				if ed.Allocated {
-					n += after.Allocated - before.Allocated
-				} else {
-					n += after.Bytes - before.Bytes
+			sum := new(big.Int)
+			observed := false
+			for _, entry := range names.engineDirs(kind) {
+				before, hadBefore := directoryValue(p.Before, entry.Key, entry.Allocated)
+				after, hadAfter := directoryValue(p.After, entry.Key, entry.Allocated)
+				if !hadBefore && !hadAfter {
+					continue // This candidate client was absent at both endpoints.
 				}
+				delta := signedDifference(before, after)
+				if delta == nil {
+					return "n/a"
+				}
+				observed = true
+				sum.Add(sum, delta)
 			}
-			return signedBytes(n)
+			if !observed {
+				return "n/a"
+			}
+			return measurementBytes(sum)
 		}
 		engineWrites := func() string {
-			var n int64
-			for _, c := range names.engineContainers() {
-				n += p.After.Containers[c].BlockWrite - p.Before.Containers[c].BlockWrite
+			sum := new(big.Int)
+			observed := false
+			for _, key := range names.engineContainers() {
+				before, hadBefore := writeValue(p.Before, key)
+				after, hadAfter := writeValue(p.After, key)
+				if !hadBefore && !hadAfter {
+					continue
+				}
+				delta := counterDifference(before, after)
+				if delta == nil {
+					return "n/a"
+				}
+				observed = true
+				sum.Add(sum, delta)
 			}
-			return signedBytes(n)
+			if !observed {
+				return "n/a"
+			}
+			return measurementBytes(sum)
 		}
-		fmt.Fprintf(&b, "| %s | %d | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", p.ID,
-			int64(p.After.L2Head)-int64(p.Before.L2Head), commas(totalsDelta(p, "txs")), signedBytes(totalsDelta(p, "dataBytes")),
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", p.ID,
+			measurementRawCount(counterDifference(snapshotHead(p.Before), snapshotHead(p.After))),
+			measurementCount(totalsDelta(p, "txs")), measurementBytes(totalsDelta(p, "dataBytes")),
 			d(names.L1Pillar+":/root/.znn/nom"), d(names.L1RPC+":/root/.znn/nom"), d(names.L1RPC+":/root/.znn/log"),
 			engine("state"), engine("history"),
-			signedBytes(idx(p.After)-idx(p.Before)), signedBytes(fol(p.After)-fol(p.Before)), d(names.Node+":/data/media"),
-			engineWrites(), w(names.Node), w(names.L1RPC))
+			measurementBytes(signedDifference(snapshotIndex(p.Before, false), snapshotIndex(p.After, false))),
+			measurementBytes(signedDifference(snapshotIndex(p.Before, true), snapshotIndex(p.After, true))),
+			d(names.Node+":/data/media"), engineWrites(), w(names.Node), w(names.L1RPC))
 	}
 
 	if last := lastWith(phases); last != nil && last.After.Index != nil {
@@ -195,45 +216,6 @@ func lastWith(phases []*PhaseRecord) *PhaseRecord {
 	return nil
 }
 
-func totalsDelta(p *PhaseRecord, key string) int64 {
-	get := func(s *Snapshot) int64 {
-		if s == nil {
-			return 0
-		}
-		d, _ := s.Ops["derivation"].(map[string]any)
-		t, _ := d["totals"].(map[string]any)
-		return int64(num(t[key]))
-	}
-	return get(p.After) - get(p.Before)
-}
+func commas(n int64) string { return decimalGroups(strconv.FormatInt(n, 10)) }
 
-func commas(n int64) string {
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	s := fmt.Sprint(n)
-	for i := len(s) - 3; i > 0; i -= 3 {
-		s = s[:i] + "," + s[i:]
-	}
-	if neg {
-		return "-" + s
-	}
-	return s
-}
-
-func signedBytes(n int64) string {
-	neg := ""
-	if n < 0 {
-		neg, n = "-", -n
-	}
-	switch {
-	case n >= 1<<30:
-		return fmt.Sprintf("%s%.2f GB", neg, float64(n)/(1<<30))
-	case n >= 1<<20:
-		return fmt.Sprintf("%s%.1f MB", neg, float64(n)/(1<<20))
-	case n >= 1<<10:
-		return fmt.Sprintf("%s%.1f KB", neg, float64(n)/(1<<10))
-	}
-	return fmt.Sprintf("%s%d B", neg, n)
-}
+func signedBytes(n int64) string { return measurementBytes(big.NewInt(n)) }

@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -131,7 +132,7 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 	if files, _ := filepath.Glob(filepath.Join(dir, "*-users-*.json")); len(files) > 0 {
 		if raw, err := os.ReadFile(files[len(files)-1]); err == nil {
 			p := new(PhaseRecord)
-			if json.Unmarshal(raw, p) == nil {
+			if decodeMeasurementJSON(bytes.NewReader(raw), p) == nil {
 				s.Phase = p
 			}
 		}
@@ -290,7 +291,7 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 	// Samples: the resource and chain view, per window.
 	readJSONL(filepath.Join(dir, "samples.jsonl"), func(b []byte) {
 		var sm Sample
-		if json.Unmarshal(b, &sm) != nil {
+		if decodeMeasurementJSON(bytes.NewReader(b), &sm) != nil {
 			return
 		}
 		at := time.UnixMilli(sm.T)

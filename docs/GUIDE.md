@@ -92,6 +92,27 @@ Unknown receipt status does not become a revert; older nonzero-gas receipt evide
 keeps the node benchmark's compatibility rule. Error rows have stable key order.
 Re-rendering reads local inputs and does not repeat the benchmark or call services.
 
+Phase accounting preserves JSON number tokens and computes counter differences
+without floating-point coercion or signed-width wrapping. Integral JSON decimal
+and exponent forms and decimal counter strings are supported; invalid,
+fractional, overflowing or decreasing cumulative counters produce `n/a`.
+Legacy in-memory floating-point counters above the safe-integer range are
+unusable; previously rounded captures cannot be reconstructed by re-rendering.
+
+Storage rows remain visible when a snapshot is absent. Missing directories,
+clients or index probes and incomplete engine aggregates produce `n/a` rather
+than zero. A measured zero requires usable endpoints. Storage can shrink, while
+a write/head/derivation counter decrease cannot establish negative usage.
+New snapshots record whether the L2 head read succeeded; a legacy zero head
+without this observation is unavailable. An absent historical `names.json`
+keeps the original chain-70 default, while an invalid present profile stops the
+report. Byte displays retain binary scaling and nearest-even rounding.
+
+The existing Go CI job adds a six-minute race step and a three-minute fuzz step
+for this package after build/vet/tests, reusing their module/toolchain inputs.
+The counter fuzzer runs for five seconds with one worker against an independent
+exact-rational oracle. These controls do not run the whole-system benchmark.
+
 Two mistakes this harness records because they were made: an application
 workload must ask for **estimated gas** (`Gas: 0`) rather than a fixed figure,
 and each workload needs **its own wallet range**. Sharing a range makes two

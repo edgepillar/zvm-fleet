@@ -202,7 +202,7 @@ func (e *Env) getJSON(ctx context.Context, path string, out any) error {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return fmt.Errorf("%s: %s: %s", path, resp.Status, strings.TrimSpace(string(b)))
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	return decodeMeasurementJSON(resp.Body, out)
 }
 
 func pick(m map[string]any, keys ...string) map[string]any {
@@ -226,6 +226,7 @@ type Snapshot struct {
 	Ops          map[string]any           `json:"ops,omitempty"`
 	Services     map[string]any           `json:"services,omitempty"`
 	L2Head       uint64                   `json:"l2Head"`
+	L2HeadKnown  *bool                    `json:"l2HeadKnown,omitempty"`
 	FollowerHead uint64                   `json:"followerHead"`
 	VaultHeight  uint64                   `json:"vaultHeight"`
 	Errors       []string                 `json:"errors,omitempty"`
@@ -279,7 +280,13 @@ func (e *Env) snapshot(ctx context.Context) *Snapshot {
 		}
 	}()
 	wg.Wait()
-	s.L2Head, _ = e.Eth.BlockNumber(ctx)
+	var headErr error
+	s.L2Head, headErr = e.Eth.BlockNumber(ctx)
+	headKnown := headErr == nil
+	s.L2HeadKnown = &headKnown
+	if headErr != nil {
+		fail("l2 head", headErr)
+	}
 	if e.Follower != nil {
 		s.FollowerHead, _ = e.Follower.BlockNumber(ctx)
 	}
@@ -331,14 +338,11 @@ func (e *Env) sampleLoop(ctx context.Context, rec *PhaseRecord) {
 }
 
 func num(v any) uint64 {
-	switch x := v.(type) {
-	case float64:
-		return uint64(x)
-	case string:
-		n, _ := strconv.ParseUint(x, 10, 64)
-		return n
+	n, ok := counterValue(v)
+	if !ok {
+		return 0
 	}
-	return 0
+	return n
 }
 
 func (e *Env) sampleOnce(ctx context.Context) Sample {

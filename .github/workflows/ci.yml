@@ -23,3 +23,23 @@ jobs:
       - run: go build ./...
       - run: go vet ./...
       - run: go test ./...
+
+      - name: Run Fleet measurement race tests
+        timeout-minutes: 6
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOMAXPROCS: "2"
+          GOFLAGS: "-mod=readonly -p=1"
+        run: go test -race -count=1 ./fleet
+
+      - name: Fuzz exact measurement counters
+        timeout-minutes: 3
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOMAXPROCS: "2"
+          GOFLAGS: "-mod=readonly -p=1"
+        run: go test -count=1 ./fleet -run '^$' -fuzz '^FuzzMeasurementCounter$' -fuzztime=5s -parallel=1
