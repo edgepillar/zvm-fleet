@@ -109,7 +109,10 @@ keeps the original chain-70 default, while an invalid present profile stops the
 report. Byte displays retain binary scaling and nearest-even rounding.
 
 The existing Go CI job adds a six-minute race step and a three-minute fuzz step
-for this package after build/vet/tests, reusing their module/toolchain inputs.
+after build/vet/tests, reusing their module/toolchain inputs. The fuzzer targets
+the standard-library-only `internal/measurement` package before the broader race
+step, so its build does not instrument the harness dependencies. The race step
+covers both Fleet and that internal package.
 The counter fuzzer runs for five seconds with one worker against an independent
 exact-rational oracle. These controls do not run the whole-system benchmark.
 
