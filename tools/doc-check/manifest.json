@@ -46,24 +46,24 @@
       "kind": "source",
       "path": "fleet/fleet.go",
       "format": "bytes",
-      "sha256": "91fc61c904d8ddec18d0b1e4010b8b55b730d3d2def8a49930b2d1b092dbc65e",
-      "bytes": 15380
+      "sha256": "50ebf0c9f45a784a887d07046ce8f9faf466a7c48ed27198b120d00344c707e0",
+      "bytes": 16396
     },
     {
       "id": "phase-report-source",
       "kind": "source",
       "path": "fleet/report.go",
       "format": "bytes",
-      "sha256": "c4b062f6a47cac17cba9c9364a18b5c1d9e50a40c844db9cca2a4b5e3a917a1c",
-      "bytes": 7648
+      "sha256": "89f7c947abbf6dbbe22bc08457afa70cde034c40368738be6a81ec32f04a179e",
+      "bytes": 9048
     },
     {
       "id": "user-report-source",
       "kind": "source",
       "path": "fleet/users_report.go",
       "format": "bytes",
-      "sha256": "2955a4da543cfa5dfce7c46b5f1dcaa6ae40849bbe8ed2b19213a388aaaf2132",
-      "bytes": 17124
+      "sha256": "a50f4b685c74abd7c624a868adb029c6788e20483be24447c991a07adf0863d1",
+      "bytes": 21547
     },
     {
       "id": "command-source",
@@ -104,6 +104,134 @@
       "format": "bytes",
       "sha256": "cdf8cb4dbf8ae35c01c6b7d3a1451dbd5cf44caa0b47f98a81baf280e5dbd92c",
       "bytes": 26083
+    },
+    {
+      "id": "runtime-cmd-zvm-fleet-users",
+      "kind": "source",
+      "path": "cmd/zvm-fleet/users.go",
+      "format": "bytes",
+      "sha256": "b84ce7617d20e8ec71a19d39b507243a9e4ddd70397c4b276c9e2f791f2d4b93",
+      "bytes": 6877
+    },
+    {
+      "id": "runtime-cmd-zvm-fleet-users-publication",
+      "kind": "source",
+      "path": "cmd/zvm-fleet/users_publication.go",
+      "format": "bytes",
+      "sha256": "1b3e1e2e0c81ba98bcb92991579b9df7be563088bcba30d40174f36219e49af2",
+      "bytes": 15307
+    },
+    {
+      "id": "runtime-fleet-jsonl-output",
+      "kind": "source",
+      "path": "fleet/jsonl_output.go",
+      "format": "bytes",
+      "sha256": "8aa1dc5baf491d78b88ddb8f5877da4ae14443db4eb2f57df4d868af6a659789",
+      "bytes": 3140
+    },
+    {
+      "id": "runtime-fleet-measurements",
+      "kind": "source",
+      "path": "fleet/measurements.go",
+      "format": "bytes",
+      "sha256": "d08b0deff3320292fd4c8a369c78629ec64e8447c82565358bcd3c1bc4fc5752",
+      "bytes": 4307
+    },
+    {
+      "id": "runtime-fleet-names",
+      "kind": "source",
+      "path": "fleet/names.go",
+      "format": "bytes",
+      "sha256": "cafd2aa1f5effda182395b98bd45f0af4152767d28d8e0bffcc1ef27457ab98e",
+      "bytes": 6776
+    },
+    {
+      "id": "runtime-fleet-probe",
+      "kind": "source",
+      "path": "fleet/probe.go",
+      "format": "bytes",
+      "sha256": "4f1fc6c482e7f3d622d805e7c8ff53dd20b4b327d23d6b0ba6a2f838cad9d0d5",
+      "bytes": 11124
+    },
+    {
+      "id": "runtime-fleet-resource-measurements",
+      "kind": "source",
+      "path": "fleet/resource_measurements.go",
+      "format": "bytes",
+      "sha256": "b89fcc627f748a0bfc456cff6f1de7c9109d2ce43eb846957d4c7b3410a6f5e8",
+      "bytes": 8224
+    },
+    {
+      "id": "runtime-fleet-sample-measurements",
+      "kind": "source",
+      "path": "fleet/sample_measurements.go",
+      "format": "bytes",
+      "sha256": "ee0a67920abc6042f5cd2f8ca9dcf0ae55458d65e60e4c2266c25492e00a764c",
+      "bytes": 2073
+    },
+    {
+      "id": "runtime-fleet-settle",
+      "kind": "source",
+      "path": "fleet/settle.go",
+      "format": "bytes",
+      "sha256": "1b3dca29d7dfed1fbcda33566edae7c263cad1bfc2bdabf23e24a48b55fe2ce4",
+      "bytes": 4919
+    },
+    {
+      "id": "runtime-fleet-user-aggregates",
+      "kind": "source",
+      "path": "fleet/user_aggregates.go",
+      "format": "bytes",
+      "sha256": "8e0457b4286565a3fa8637d0b31b42cb2b5861e322f2e16ce6fef8a174ffd83a",
+      "bytes": 12071
+    },
+    {
+      "id": "runtime-fleet-user-context",
+      "kind": "source",
+      "path": "fleet/user_context.go",
+      "format": "bytes",
+      "sha256": "dab6b89918b6446d57012ada963e39c5ffc2cc6602e0e3460c0eeb867ce96927",
+      "bytes": 10605
+    },
+    {
+      "id": "runtime-fleet-user-inputs",
+      "kind": "source",
+      "path": "fleet/user_inputs.go",
+      "format": "bytes",
+      "sha256": "f1d12cc0afb1aa0fb65fbd3c1658e5316d667b769c4caf8ed0b956923cabf0f6",
+      "bytes": 10921
+    },
+    {
+      "id": "runtime-fleet-user-output",
+      "kind": "source",
+      "path": "fleet/user_output.go",
+      "format": "bytes",
+      "sha256": "928c6b0393d2b011790f445f416866fe1cd2cbda6381b204d376435e654be224",
+      "bytes": 6232
+    },
+    {
+      "id": "runtime-fleet-user-timing",
+      "kind": "source",
+      "path": "fleet/user_timing.go",
+      "format": "bytes",
+      "sha256": "b820512312f55cd8c71c64fd0fa5efea14bb806027af1c3eb6709f9fb07523ec",
+      "bytes": 9460
+    },
+    {
+      "id": "runtime-fleet-users",
+      "kind": "source",
+      "path": "fleet/users.go",
+      "format": "bytes",
+      "sha256": "409c955bf4805048526004ab8bd2d81060da9dee80386f5f99447a9dec60888f",
+      "bytes": 37934
+    },
+    {
+      "id": "runtime-internal-measurement-value",
+      "kind": "source",
+      "path": "internal/measurement/value.go",
+      "format": "bytes",
+      "sha256": "55acd38b1f00783f85cae926c5d87e79a343a2928d652da76a93e19d12da973d",
+      "bytes": 2751
     }
   ],
   "comparisons": [],
@@ -113,16 +241,33 @@
       "document": "docs/EVIDENCE.md",
       "anchor": "current-source-references",
       "status": "implementation",
-      "sourceRevision": "d00b61aa734b4cb8e7103114772c60c1ebcaacb5",
+      "sourceRevision": "1c2c499d08e8ee7e7830d2561cf5cae356ede5c5",
       "inputs": [
         "phase-record-source",
         "phase-report-source",
         "user-report-source",
         "command-source",
+        "runtime-cmd-zvm-fleet-users",
+        "runtime-cmd-zvm-fleet-users-publication",
+        "runtime-fleet-jsonl-output",
+        "runtime-fleet-measurements",
+        "runtime-fleet-names",
+        "runtime-fleet-probe",
+        "runtime-fleet-resource-measurements",
+        "runtime-fleet-sample-measurements",
+        "runtime-fleet-settle",
+        "runtime-fleet-user-aggregates",
+        "runtime-fleet-user-context",
+        "runtime-fleet-user-inputs",
+        "runtime-fleet-user-output",
+        "runtime-fleet-user-timing",
+        "runtime-fleet-users",
+        "runtime-internal-measurement-value",
         "published-vectors"
       ],
       "limitations": [
-        "Selected unchanged source bytes only; no renderer, application, submodule or benchmark execution."
+        "Selected runtime pipeline bytes checked against the declared immutable source. The checker itself executes no application, submodule, wallet, RPC or benchmark.",
+        "Runtime workflow results, documentation execution, source authority, real raw-run completeness, benchmark method and production acceptance remain distinct evidence."
       ]
     },
     {
@@ -130,10 +275,10 @@
       "document": "docs/EVIDENCE.md",
       "anchor": "planned-retention-work",
       "status": "plan",
-      "sourceRevision": "d00b61aa734b4cb8e7103114772c60c1ebcaacb5",
+      "sourceRevision": "1c2c499d08e8ee7e7830d2561cf5cae356ede5c5",
       "inputs": [],
       "limitations": [
-        "Real raw-manifest retention, reporter completeness and independently qualified reproduction remain open."
+        "Historical raw recovery, complete source/run/platform context, representative methods and independent whole-system acceptance remain open; selected runtime controls do not fill that gap."
       ]
     },
     {
