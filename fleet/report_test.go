@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -164,5 +165,45 @@ func TestReportLateMissingRunEmitsNoPartialReport(t *testing.T) {
 	md, n, err := Report(dir)
 	if err == nil || md != "" || n != 0 {
 		t.Fatalf("late missing run returned partial success: phases=%d error=%v", n, err)
+	}
+}
+
+func TestReportKeepsLegacyReceiptSemantics(t *testing.T) {
+	dir, _ := reportFixture(t)
+	res := reportResult()
+	res.Records[1].Receipt = false // Older records use nonzero gas as receipt evidence.
+	writeReportJSON(t, filepath.Join(dir, "runs", "result.json"), res)
+	md, n, err := Report(dir)
+	if err != nil || n != 1 {
+		t.Fatalf("legacy report: phases=%d error=%v", n, err)
+	}
+	if !strings.Contains(md, "| 00-test | transfer-new | batch | 2 | 2 | 5 | 3 | 1 | 1 |") ||
+		!strings.Contains(md, "1 \u00d7 reverted") {
+		t.Fatal("legacy receipt evidence differs between summary and error counts")
+	}
+}
+
+func TestReportErrorRowsSorted(t *testing.T) {
+	dir, _ := reportFixture(t)
+	res := reportResult()
+	res.Records, res.Blocks = nil, nil
+	for i := 15; i >= 0; i-- {
+		res.Records = append(res.Records, bench.Record{Error: fmt.Sprintf("synthetic-error-%02d", i)})
+	}
+	writeReportJSON(t, filepath.Join(dir, "runs", "result.json"), res)
+	md, n, err := Report(dir)
+	if err != nil || n != 1 {
+		t.Fatalf("error report: phases=%d error=%v", n, err)
+	}
+	parts := strings.SplitN(md, "## Errors\n\n", 2)
+	if len(parts) != 2 {
+		t.Fatal("missing errors section")
+	}
+	var want strings.Builder
+	for i := 0; i < 16; i++ {
+		fmt.Fprintf(&want, "- 00-test transfer-new/batch: 1 \u00d7 synthetic-error-%02d\n", i)
+	}
+	if parts[1] != want.String() {
+		t.Fatal("error rows are not sorted by their recomputed keys")
 	}
 }

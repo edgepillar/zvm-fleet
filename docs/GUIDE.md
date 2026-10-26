@@ -82,6 +82,16 @@ for the tables. The raw per-phase JSON each run writes is hundreds of megabytes
 and belongs with the run, not in a docs repo — `-out` decides where it lands, and
 `results/` here is gitignored.
 
+Keep the referenced `runs/*.json` files with each phase file when moving a run.
+`zvm-fleet report` requires relative run references inside the results directory
+and checks that workload, lane and wallet count match the phase reference. A
+missing, unreadable, malformed or mismatched run stops the report before output;
+restore its raw input rather than relying on a cached phase summary. Summaries,
+distinct included senders and error counts are rebuilt even for zero-record runs.
+Unknown receipt status does not become a revert; older nonzero-gas receipt evidence
+keeps the node benchmark's compatibility rule. Error rows have stable key order.
+Re-rendering reads local inputs and does not repeat the benchmark or call services.
+
 Two mistakes this harness records because they were made: an application
 workload must ask for **estimated gas** (`Gas: 0`) rather than a fixed figure,
 and each workload needs **its own wallet range**. Sharing a range makes two

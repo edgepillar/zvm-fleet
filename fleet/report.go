@@ -11,8 +11,9 @@ import (
 	"github.com/Zenoglyphs-VM/zvm-node/bench"
 )
 
-// Report renders the phase files in dir as markdown tables. It recomputes from
-// the stored snapshots, so a correction costs a re-render, not a re-run.
+// Report renders the phase files in dir as markdown tables. Referenced raw runs
+// must be available and match their phase metadata. Counters are recomputed from
+// those records, so a correction costs a re-render, not a re-run.
 func Report(dir string) (string, int, error) {
 	// Init() writes this alongside the phase files; its absence means a run
 	// from before profiles existed, which was always chain 70.
@@ -20,6 +21,11 @@ func Report(dir string) (string, int, error) {
 	if raw, err := os.ReadFile(filepath.Join(dir, "names.json")); err == nil {
 		json.Unmarshal(raw, &names)
 	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return "", 0, err
+	}
+	defer root.Close()
 	files, err := filepath.Glob(filepath.Join(dir, "[0-9][0-9]-*.json"))
 	if err != nil {
 		return "", 0, err
@@ -41,16 +47,39 @@ func Report(dir string) (string, int, error) {
 		// It found 910 reverts that never happened: a block whose receipts
 		// could not be read left its records at status 0.
 		for i := range p.Runs {
-			path := filepath.Join(dir, filepath.FromSlash(p.Runs[i].File))
-			rec, err := os.ReadFile(path)
+			r := &p.Runs[i]
+			path, err := filepath.Localize(r.File)
 			if err != nil {
-				continue
+				return "", 0, fmt.Errorf("%s run %d: invalid raw run reference: %w", filepath.Base(f), i, err)
 			}
-			var res bench.Result
-			if json.Unmarshal(rec, &res) != nil || len(res.Records) == 0 {
-				continue
+			rec, err := root.ReadFile(path)
+			if err != nil {
+				return "", 0, fmt.Errorf("%s run %d: reading raw run: %w", filepath.Base(f), i, err)
 			}
-			p.Runs[i].Summary = bench.Summarize(&res)
+			var res *bench.Result
+			if err := json.Unmarshal(rec, &res); err != nil {
+				return "", 0, fmt.Errorf("%s run %d: decoding raw run: %w", filepath.Base(f), i, err)
+			}
+			if res == nil || res.Scenario != r.Scenario || res.Lane != r.Lane || res.Wallets != r.Wallets {
+				return "", 0, fmt.Errorf("%s run %d: raw run metadata does not match the phase reference", filepath.Base(f), i)
+			}
+			r.Summary = bench.Summarize(res)
+			r.Errors = map[string]int{}
+			senders := map[int]bool{}
+			for _, record := range res.Records {
+				if record.Error != "" {
+					r.Errors[errorKind(record.Error)]++
+					continue
+				}
+				if record.IncludedMS != 0 {
+					senders[record.Wallet] = true
+					// Match bench.Summarize's receipt and legacy-gas rules.
+					if record.Status == 0 && (record.Receipt || record.GasUsed != 0) {
+						r.Errors["reverted"]++
+					}
+				}
+			}
+			r.Senders = len(senders)
 		}
 		phases = append(phases, p)
 	}
@@ -144,8 +173,13 @@ func Report(dir string) (string, int, error) {
 			fmt.Fprintf(&b, "- **%s**: %s\n", p.ID, p.Error)
 		}
 		for _, r := range p.Runs {
-			for k, n := range r.Errors {
-				fmt.Fprintf(&b, "- %s %s/%s: %s × %s\n", p.ID, r.Scenario, r.Lane, commas(int64(n)), k)
+			keys := make([]string, 0, len(r.Errors))
+			for k := range r.Errors {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				fmt.Fprintf(&b, "- %s %s/%s: %s × %s\n", p.ID, r.Scenario, r.Lane, commas(int64(r.Errors[k])), k)
 			}
 		}
 	}
