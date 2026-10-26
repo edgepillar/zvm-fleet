@@ -418,3 +418,36 @@ workloads fight over nonces and measures the fight.
 Built on [`zvm-core`](https://github.com/Zenoglyphs-VM/zvm-core), [`zvm-node`](https://github.com/Zenoglyphs-VM/zvm-node) and
 [`zvm-bridge`](https://github.com/Zenoglyphs-VM/zvm-bridge) — it drives all of them, which is why it sits
 downstream of every one.
+
+## Bounded timing fuzz campaigns
+
+`fleet/user_timing_fuzz_test.go` adds three in-memory, deterministic fuzz targets:
+
+- `FuzzUserTimingExactStatistics` compares up to 64 available/unavailable signed
+  observations with independent integer-rank, unreduced-mean, binary64
+  representability and rational nearest-even display oracles. It also checks the
+  distribution JSON round trip. Wide sums, signed extremes, measured zero,
+  missing observations, fractional means and decimal ties are seed inputs.
+- `FuzzUserTimingWireCohorts` exercises up to 16 synthetic records per input.
+  Raw scalar/declaration matrices cover absent/null/legacy/explicit availability,
+  capture/replay and canonical field names. Independent eligibility multisets
+  check total/profile/action and preselected window reducers, including failures,
+  skips, unmined/reverted transactions and unknown payout anchors. It does not
+  run the complete filesystem/context/scheduling path or assign real timestamps.
+- `FuzzUserTimingClockArithmetic` checks signed subtraction, block-millisecond
+  narrowing, payout-anchor availability and wide integer quantile ranks against
+  unbounded integer arithmetic.
+
+Each CI target runs for five seconds with one worker after the unchanged build,
+vet and normal tests. Fuzz steps use the installed local toolchain, read-only
+module mode and disabled module/sum network access. Existing counter fuzz and
+race steps remain separate. No fixture performs per-input filesystem or service
+work. Input slices are bounded before decoding; these are finite campaigns, not
+exhaustive proofs, timing benchmarks, full-run completeness or platform/runtime
+acceptance. Seeds also execute during ordinary `go test` and race runs.
+
+On a failure or panic, bounded effective synthetic arguments are logged in hex
+before the failure propagates. Slice reproducers are capped at 576/432 bytes;
+the clock reproducer holds four little-endian uint64 words (after, before,
+seconds, rank), followed by its known flag. This retains a reproducer without
+per-input files or another diagnostic artifact upload.

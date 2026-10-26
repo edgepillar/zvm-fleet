@@ -34,6 +34,36 @@ jobs:
           GOFLAGS: "-mod=readonly -p=1"
         run: go test -count=1 ./internal/measurement -run '^$' -fuzz '^FuzzMeasurementCounter$' -fuzztime=5s -parallel=1
 
+      - name: Fuzz exact user timing statistics
+        timeout-minutes: 3
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOMAXPROCS: "2"
+          GOFLAGS: "-mod=readonly -p=1"
+        run: go test -count=1 ./fleet -run '^$' -fuzz '^FuzzUserTimingExactStatistics$' -fuzztime=5s -parallel=1
+
+      - name: Fuzz user timing wire and cohorts
+        timeout-minutes: 3
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOMAXPROCS: "2"
+          GOFLAGS: "-mod=readonly -p=1"
+        run: go test -count=1 ./fleet -run '^$' -fuzz '^FuzzUserTimingWireCohorts$' -fuzztime=5s -parallel=1
+
+      - name: Fuzz checked user clock arithmetic
+        timeout-minutes: 3
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOMAXPROCS: "2"
+          GOFLAGS: "-mod=readonly -p=1"
+        run: go test -count=1 ./fleet -run '^$' -fuzz '^FuzzUserTimingClockArithmetic$' -fuzztime=5s -parallel=1
+
       - name: Run Fleet measurement race tests
         timeout-minutes: 6
         env:
