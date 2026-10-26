@@ -1,11 +1,7 @@
 package fleet
 
 import (
-	"bufio"
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -16,16 +12,17 @@ import (
 // rebuilt from records.jsonl and samples.jsonl, so a run that was interrupted
 // still reports the part it ran.
 type UsersSummary struct {
-	Label    string         `json:"label"`
-	Mix      []ProfileCount `json:"mix"`
-	Start    time.Time      `json:"start"`
-	End      time.Time      `json:"end"`
-	Totals   UsersTotals    `json:"totals"`
-	Profiles []*Agg         `json:"profiles"`
-	Actions  []*Agg         `json:"actions"`
-	Windows  []*Window      `json:"windows"`
-	Errors   []ErrorCount   `json:"errors"`
-	Phase    *PhaseRecord   `json:"-"`
+	Label    string            `json:"label"`
+	Mix      []ProfileCount    `json:"mix"`
+	Start    time.Time         `json:"start"`
+	End      time.Time         `json:"end"`
+	Totals   UsersTotals       `json:"totals"`
+	Profiles []*Agg            `json:"profiles"`
+	Actions  []*Agg            `json:"actions"`
+	Windows  []*Window         `json:"windows"`
+	Errors   []ErrorCount      `json:"errors"`
+	Inputs   UserInputEvidence `json:"inputs"`
+	Phase    *PhaseRecord      `json:"-"`
 }
 
 type UsersTotals struct {
@@ -104,52 +101,26 @@ type ErrorCount struct {
 // WindowSize is the report's time slice.
 const WindowSize = 30 * time.Minute
 
-func readJSONL(path string, each func([]byte)) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 1<<20), 16<<20)
-	for sc.Scan() {
-		if len(sc.Bytes()) > 0 {
-			each(sc.Bytes())
-		}
-	}
-	return sc.Err()
-}
-
 func SummarizeUsers(dir string) (*UsersSummary, error) {
 	names, err := reportNames(dir)
 	if err != nil {
 		return nil, err
 	}
 	s := &UsersSummary{}
-	var meta struct {
-		Label string         `json:"label"`
-		Mix   []ProfileCount `json:"mix"`
-	}
-	if raw, err := os.ReadFile(filepath.Join(dir, "users.json")); err == nil {
-		json.Unmarshal(raw, &meta)
-	}
-	s.Label, s.Mix = meta.Label, meta.Mix
-	if files, _ := filepath.Glob(filepath.Join(dir, "*-users-*.json")); len(files) > 0 {
-		if raw, err := os.ReadFile(files[len(files)-1]); err == nil {
-			p := new(PhaseRecord)
-			if decodeMeasurementJSON(bytes.NewReader(raw), p) == nil {
-				s.Phase = p
-			}
-		}
+	if err := loadUserContext(dir, s); err != nil {
+		return nil, err
 	}
 
 	var recs []Record
-	if err := readJSONL(filepath.Join(dir, "records.jsonl"), func(b []byte) {
-		var r Record
-		if json.Unmarshal(b, &r) == nil {
-			recs = append(recs, r)
+	s.Inputs.Records, err = readUserJSONL(filepath.Join(dir, "records.jsonl"), false, func(raw []byte) error {
+		record, err := userRecord(raw)
+		if err != nil {
+			return err
 		}
-	}); err != nil {
+		recs = append(recs, *record)
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
 	if len(recs) == 0 {
@@ -166,6 +137,10 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 	}
 	s.End = time.UnixMilli(recs[len(recs)-1].T)
 	s.Start = s.Start.Truncate(time.Minute)
+	if s.Start.After(s.End) || s.End.Sub(s.Start)/WindowSize >= userReportWindowLimit {
+		return nil, fmt.Errorf("user report time span exceeds the window bound or conflicts with its context")
+	}
+	s.Inputs.Records.UsedRows = s.Inputs.Records.Rows
 
 	users := map[string]map[int]bool{}
 	profiles := map[string]*Agg{}
@@ -294,24 +269,35 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 	t.Confirm, t.Include, t.Read, t.Blocks = dist(confirm), dist(include), dist(read), len(blocks)
 
 	// Samples: the resource and chain view, per window.
-	readJSONL(filepath.Join(dir, "samples.jsonl"), func(b []byte) {
-		var sm Sample
-		if decodeMeasurementJSON(bytes.NewReader(b), &sm) != nil {
-			return
+	var usedSamples int64
+	s.Inputs.Samples, err = readUserJSONL(filepath.Join(dir, "samples.jsonl"), true, func(raw []byte) error {
+		sm, err := userSample(raw)
+		if err != nil {
+			return err
 		}
 		at := time.UnixMilli(sm.T)
 		if at.Before(s.Start) || at.After(simEnd.Add(WindowSize)) {
-			return
+			return nil
 		}
+		if at.Sub(s.Start)/WindowSize >= userReportWindowLimit {
+			return fmt.Errorf("user sample exceeds the report window bound")
+		}
+		usedSamples++
 		w := window(at)
-		w.observeResources(sm, names)
+		w.observeResources(*sm, names)
 		l2Known, l1Known := sm.L2 > 0, sm.L1 > 0
 		if sm.Known != nil {
 			l2Known, l1Known = sm.Known.L2, sm.Known.L1
 		}
 		w.l2.observe(sm.T, sm.L2, l2Known)
 		w.l1.observe(sm.T, sm.L1, l1Known)
+		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	s.Inputs.Samples.UsedRows = usedSamples
+	s.Inputs.Partial = s.Inputs.Records.State != "terminated" || s.Inputs.Samples.State != "terminated" || s.Inputs.Samples.Rows == 0
 	for _, w := range windows {
 		secs := WindowSize.Seconds()
 		if end := w.Start.Add(WindowSize); end.After(simEnd) {
@@ -402,6 +388,7 @@ func UsersMarkdown(s *UsersSummary) string {
 	fmt.Fprintf(&b, "# ZVM user simulation — %s\n\n", label)
 	fmt.Fprintf(&b, "Generated by `zvm-fleet users-report`. %d simulated users, %s → %s UTC (%.2f h).\n\n",
 		users, s.Start.UTC().Format("2006-01-02 15:04"), s.End.UTC().Format("2006-01-02 15:04"), t.Hours)
+	renderUserInputs(&b, s.Inputs)
 
 	b.WriteString("## Population\n\n| Profile | Users | Lane | Mean think | In flight | Mix |\n|---|---:|---|---:|---:|---|\n")
 	for _, pc := range s.Mix {

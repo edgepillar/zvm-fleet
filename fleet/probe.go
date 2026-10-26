@@ -65,6 +65,11 @@ type ContainerStat struct {
 }
 
 func (e *Env) dockerStats(ctx context.Context) map[string]ContainerStat {
+	stats, _ := e.dockerStatsResult(ctx)
+	return stats
+}
+
+func (e *Env) dockerStatsResult(ctx context.Context) (map[string]ContainerStat, error) {
 	var names []string
 	allowed := map[string]bool{}
 	for _, c := range e.Names.all() {
@@ -74,14 +79,28 @@ func (e *Env) dockerStats(ctx context.Context) map[string]ContainerStat {
 		}
 	}
 	if len(names) == 0 {
-		return nil
+		return nil, nil
 	}
 	args := append([]string{"stats", "--no-stream", "--format", "{{json .}}"}, names...)
 	out, err := exec.CommandContext(ctx, "docker", args...).Output()
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("command unavailable")
 	}
-	return dockerRows(out, allowed)
+	stats := dockerRows(out, allowed)
+	if stats == nil {
+		return nil, fmt.Errorf("malformed output")
+	}
+	if len(stats) != len(allowed) {
+		return stats, fmt.Errorf("incomplete observations")
+	}
+	for _, stat := range stats {
+		for _, known := range stat.Known {
+			if !known {
+				return stats, fmt.Errorf("invalid fields")
+			}
+		}
+	}
+	return stats, nil
 }
 
 type DirSize struct {
@@ -206,7 +225,14 @@ func (e *Env) snapshot(ctx context.Context) *Snapshot {
 	}
 	var wg sync.WaitGroup
 	wg.Add(5)
-	go func() { defer wg.Done(); s.Containers = e.dockerStats(ctx) }()
+	go func() {
+		defer wg.Done()
+		var err error
+		s.Containers, err = e.dockerStatsResult(ctx)
+		if err != nil {
+			fail("containers", err)
+		}
+	}()
 	go func() { defer wg.Done(); s.Dirs = e.dirSizes(ctx) }()
 	go func() {
 		defer wg.Done()
@@ -273,6 +299,7 @@ type Sample struct {
 	Relayer    map[string]any           `json:"relayer,omitempty"`
 	Bridge     map[string]any           `json:"bridge,omitempty"`
 	Faucet     map[string]any           `json:"faucet,omitempty"`
+	Errors     []string                 `json:"errors,omitempty"`
 }
 
 func (e *Env) sampleLoop(ctx context.Context, rec *PhaseRecord) {
@@ -313,7 +340,14 @@ func (e *Env) sampleOnce(ctx context.Context) Sample {
 	s := Sample{T: time.Now().UnixMilli(), Known: new(SampleKnown)}
 	var wg sync.WaitGroup
 	wg.Add(4)
-	go func() { defer wg.Done(); s.Containers = e.dockerStats(ctx) }()
+	go func() {
+		defer wg.Done()
+		var err error
+		s.Containers, err = e.dockerStatsResult(ctx)
+		if err != nil {
+			s.Errors = append(s.Errors, "docker stats: "+err.Error())
+		}
+	}()
 	go func() {
 		defer wg.Done()
 		var info map[string]any

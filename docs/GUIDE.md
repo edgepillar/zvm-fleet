@@ -59,7 +59,8 @@ zvm-fleet users-report -in bench/users-baseline      # rebuild USERS.md
 ```
 
 Each action is streamed to `records.jsonl` and each sample to `samples.jsonl` as
-it happens, so a run cut short still reports what it ran. `-pace 0.05` shrinks
+it happens, so a run cut short can report its retained valid prefix with explicit
+partial-input evidence. `-pace 0.05` shrinks
 every think time for a smoke test; a run with any pace but 1 is not a baseline.
 
 ## `l1-heal`, and why it exists
@@ -168,6 +169,33 @@ Legacy numeric fields retain presence-based compatibility; captures that
 already substituted zero for failed parsing cannot be reconstructed. Corrupt
 or incomplete JSONL handling, remaining ratios and full-system qualification
 remain separate acceptance work.
+
+User-report JSONL replay refuses malformed or ambiguous completed rows, blank
+rows, invalid UTF-8, duplicate object keys and unusable essential record/sample
+fields. Read errors, overlong rows and invalid present user/phase metadata stop
+summary generation; an existing CLI report/summary is preserved on these input
+refusals. A valid final object without a newline is accepted but marked partial.
+Only an unterminated final object with incomplete syntax can leave a usable
+prefix. Complete invalid data is never silently discarded as a crash tail.
+
+Summary `inputs` and the Markdown evidence section record per-file byte counts,
+SHA-256, accepted/used rows, framing state and unterminated-tail offset, size,
+hash and acceptance. Missing samples remain explicit partial input with unavailable
+resource measurements. Original inputs are never repaired, truncated or rewritten.
+Regular-file identity/size/time checks detect ordinary changes during a read;
+these are per-file observations, without an atomic cross-file snapshot or proof
+of run completion, authenticity or durability of the original writer.
+
+Rows retain the 16 MiB bound and add limits of 128 nesting levels and one million
+JSON tokens. Reports refuse spans requiring more than 10,000 half-hour windows
+rather than allocating an unbounded gap. Counts and rates describe retained
+accepted records, not unobserved actions or a completed benchmark. Writer-error
+propagation, remaining ratios and whole-system qualification remain open.
+
+Sample `errors` and snapshot diagnostics now distinguish unavailable, garbled,
+incomplete or invalid Docker observations from an empty container selection.
+These messages are fixed concise reasons; they do not copy command output,
+stderr or endpoint credentials into the evidence.
 
 The existing Go CI job adds a six-minute race step and a three-minute fuzz step
 after build/vet/tests, reusing their module/toolchain inputs. The fuzzer targets
