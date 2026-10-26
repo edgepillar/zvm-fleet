@@ -300,6 +300,7 @@ func (e *Env) snapshot(ctx context.Context) *Snapshot {
 // Sample is the five-second view of a phase.
 type Sample struct {
 	T          int64                    `json:"t"`
+	Known      *SampleKnown             `json:"known,omitempty"`
 	Containers map[string]ContainerStat `json:"containers,omitempty"`
 	L2         uint64                   `json:"l2"`
 	Indexed    uint64                   `json:"indexed"`
@@ -346,7 +347,7 @@ func num(v any) uint64 {
 }
 
 func (e *Env) sampleOnce(ctx context.Context) Sample {
-	s := Sample{T: time.Now().UnixMilli()}
+	s := Sample{T: time.Now().UnixMilli(), Known: new(SampleKnown)}
 	var wg sync.WaitGroup
 	wg.Add(4)
 	go func() { defer wg.Done(); s.Containers = e.dockerStats(ctx) }()
@@ -356,35 +357,21 @@ func (e *Env) sampleOnce(ctx context.Context) Sample {
 		if e.getJSON(ctx, "/api/info", &info) != nil {
 			return
 		}
-		if r, ok := info["relayer"].(map[string]any); ok {
-			delete(r, "accounts")
-			s.Relayer = r
-		}
-		s.Bridge, _ = info["bridge"].(map[string]any)
-		if f, ok := info["faucet"].(map[string]any); ok {
-			s.Faucet = pick(f, "served", "l1Balances", "l2Balance")
-		}
-		if l2, ok := info["l2"].(map[string]any); ok {
-			s.L2 = num(l2["head"])
-		}
-		if l1, ok := info["l1"].(map[string]any); ok {
-			s.L1 = num(l1["frontier"])
-		}
-		if d, ok := info["derivation"].(map[string]any); ok {
-			s.Derived = num(d["momentum"])
-		}
+		s.captureInfo(info)
 	}()
 	go func() {
 		defer wg.Done()
 		var rows []map[string]any
 		if e.getJSON(ctx, "/api/blocks?limit=1", &rows) == nil && len(rows) > 0 {
-			s.Indexed = num(rows[0]["number"])
+			s.Indexed, s.Known.Indexed = counterValue(rows[0]["number"])
 		}
 	}()
 	go func() {
 		defer wg.Done()
 		if e.Follower != nil {
-			s.Follower, _ = e.Follower.BlockNumber(ctx)
+			var err error
+			s.Follower, err = e.Follower.BlockNumber(ctx)
+			s.Known.Follower = err == nil
 		}
 	}()
 	wg.Wait()

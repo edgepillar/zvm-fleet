@@ -108,6 +108,22 @@ without this observation is unavailable. An absent historical `names.json`
 keeps the original chain-70 default, while an invalid present profile stops the
 report. Byte displays retain binary scaling and nearest-even rounding.
 
+User-report L2-block and momentum windows require two usable observations at
+distinct, increasing sample times. Any observed decrease, missing counter or
+conflicting sample time makes that counter's window `n/a`, including a reset
+followed by recovery. A duplicate observation at the same time cannot supply a
+second endpoint. Separate windows and counters retain their own availability.
+These counts cover the observed sample span; they do not reconstruct unobserved
+window edges or a reset hidden between samples.
+
+New sample JSON includes `known` flags for L2, indexed, follower, L1 and derived
+counters, so a successful zero read differs from an unavailable read. These
+flags record parsing/read success, without asserting service health or finality.
+Legacy positive counters retain their existing meaning, while legacy zero is
+ambiguous. Summary JSON includes `l2BlocksKnown` and `l1MomentumsKnown`; consumers
+must use them before interpreting the corresponding numeric fields. This does
+not qualify other resource columns, corrupt JSONL handling or phase scheduling.
+
 The existing Go CI job adds a six-minute race step and a three-minute fuzz step
 after build/vet/tests, reusing their module/toolchain inputs. The fuzzer targets
 the standard-library-only `internal/measurement` package before the broader race

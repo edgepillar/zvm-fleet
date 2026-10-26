@@ -72,26 +72,27 @@ type Agg struct {
 
 // Window is one slice of the run in time.
 type Window struct {
-	Start      time.Time `json:"start"`
-	Txs        int       `json:"txs"`
-	OK         int       `json:"ok"`
-	Failed     int       `json:"failed"`
-	TxPerSec   float64   `json:"txPerSec"`
-	Confirm    Dist      `json:"confirmMs"`
-	Read       Dist      `json:"readMs"`
-	Queued     uint64    `json:"relayerQueuedMax"`
-	NodeCPU    float64   `json:"nodeCpu"`
-	EngineCPU  float64   `json:"engineCpu"`
-	RelayerCPU float64   `json:"relayerCpu"`
-	NodeMem    int64     `json:"nodeMem"`
-	EngineMem  int64     `json:"engineMem"`
-	L2Blocks   uint64    `json:"l2Blocks"`
-	L1Moms     uint64    `json:"l1Momentums"`
-	confirm    []float64
-	read       []float64
-	samples    int
-	l2a, l2b   uint64
-	l1a, l1b   uint64
+	Start         time.Time `json:"start"`
+	Txs           int       `json:"txs"`
+	OK            int       `json:"ok"`
+	Failed        int       `json:"failed"`
+	TxPerSec      float64   `json:"txPerSec"`
+	Confirm       Dist      `json:"confirmMs"`
+	Read          Dist      `json:"readMs"`
+	Queued        uint64    `json:"relayerQueuedMax"`
+	NodeCPU       float64   `json:"nodeCpu"`
+	EngineCPU     float64   `json:"engineCpu"`
+	RelayerCPU    float64   `json:"relayerCpu"`
+	NodeMem       int64     `json:"nodeMem"`
+	EngineMem     int64     `json:"engineMem"`
+	L2Blocks      uint64    `json:"l2Blocks"`
+	L1Moms        uint64    `json:"l1Momentums"`
+	L2BlocksKnown bool      `json:"l2BlocksKnown"`
+	L1MomsKnown   bool      `json:"l1MomentumsKnown"`
+	confirm       []float64
+	read          []float64
+	samples       int
+	l2, l1        sampleCounterWindow
 }
 
 type ErrorCount struct {
@@ -315,18 +316,12 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 				w.RelayerCPU += c.CPU
 			}
 		}
-		if sm.L2 > 0 {
-			if w.l2a == 0 {
-				w.l2a = sm.L2
-			}
-			w.l2b = sm.L2
+		l2Known, l1Known := sm.L2 > 0, sm.L1 > 0
+		if sm.Known != nil {
+			l2Known, l1Known = sm.Known.L2, sm.Known.L1
 		}
-		if sm.L1 > 0 {
-			if w.l1a == 0 {
-				w.l1a = sm.L1
-			}
-			w.l1b = sm.L1
-		}
+		w.l2.observe(sm.T, sm.L2, l2Known)
+		w.l1.observe(sm.T, sm.L1, l1Known)
 	})
 	for _, w := range windows {
 		secs := WindowSize.Seconds()
@@ -340,7 +335,8 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 			n := float64(w.samples)
 			w.NodeCPU, w.EngineCPU, w.RelayerCPU = w.NodeCPU/n, w.EngineCPU/n, w.RelayerCPU/n
 		}
-		w.L2Blocks, w.L1Moms = w.l2b-w.l2a, w.l1b-w.l1a
+		w.L2Blocks, w.L2BlocksKnown = w.l2.result()
+		w.L1Moms, w.L1MomsKnown = w.l1.result()
 	}
 	s.Windows = windows
 
@@ -473,11 +469,13 @@ func UsersMarkdown(s *UsersSummary) string {
 	}
 
 	fmt.Fprintf(&b, "\n## Over time (%s windows)\n\nCPU is the mean over the window's samples, in percent of one core; memory is the window's peak.\n\n", WindowSize)
+	b.WriteString("L2 blocks and momentums require two distinct, ordered sample times with usable nondecreasing counters. Missing observations, counter resets or conflicting times produce `n/a`; a measured zero needs both endpoints. These are observed sample spans within each window, excluding unobserved edges.\n\n")
 	b.WriteString("| Window (UTC) | Txs | Tx/s | Failed | Confirm p50 s | p90 s | Load p50 ms | Relayer queue max | L2 blocks | Momentums | node CPU | op-reth CPU | relayer CPU | node MiB | op-reth MiB |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
 	for _, w := range s.Windows {
-		fmt.Fprintf(&b, "| %s | %s | %.2f | %d | %s | %s | %.0f | %d | %d | %d | %.1f | %.1f | %.1f | %s | %s |\n",
+		fmt.Fprintf(&b, "| %s | %s | %.2f | %d | %s | %s | %.0f | %d | %s | %s | %.1f | %.1f | %.1f | %s | %s |\n",
 			w.Start.UTC().Format("15:04"), n64(w.Txs), w.TxPerSec, w.Failed, secs(w.Confirm.P50), secs(w.Confirm.P90), w.Read.P50,
-			w.Queued, w.L2Blocks, w.L1Moms, w.NodeCPU, w.EngineCPU, w.RelayerCPU, mib(w.NodeMem), mib(w.EngineMem))
+			w.Queued, sampleWindowCount(w.L2Blocks, w.L2BlocksKnown), sampleWindowCount(w.L1Moms, w.L1MomsKnown),
+			w.NodeCPU, w.EngineCPU, w.RelayerCPU, mib(w.NodeMem), mib(w.EngineMem))
 	}
 
 	if p := s.Phase; p != nil && p.Before != nil && p.After != nil {
