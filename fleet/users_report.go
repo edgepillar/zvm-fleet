@@ -449,7 +449,7 @@ func UsersMarkdown(s *UsersSummary) string {
 	row("Confirmation p50 / p90 / p99 / max, s", fmt.Sprintf("%s / %s / %s / %s", secs(t.Confirm.P50), secs(t.Confirm.P90), secs(t.Confirm.P99), secs(t.Confirm.Max)))
 	row("Submit → block timestamp p50 / p90, s", fmt.Sprintf("%s / %s", secs(t.Include.P50), secs(t.Include.P90)))
 	row("L2 blocks carrying a user tx", n64(t.Blocks))
-	row("Gas used", userGasTotal(t))
+	row("Gas used", userGasTotal(&t))
 	row("Signed orders posted", n64(t.Orders))
 	row("Withdrawals paid on NoM", fmt.Sprintf("%d of %d", t.PayoutsPaid, t.Payouts))
 	row("Page loads", fmt.Sprintf("%s (%d errors)", n64(t.Reads), t.ReadErrors))
