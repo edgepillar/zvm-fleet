@@ -87,3 +87,17 @@ privacy, semantic and provenance review remain necessary. Keep raw operator
 logs, private paths, real identity, accounts and credentials out of public reports.
 Windows capture, actual services/chains, controlled performance, crash recovery,
 complete source freshness and production acceptance remain unqualified.
+
+## Source revision aliases
+
+Implementation source selectors use the current contribution history after
+author metadata normalization. Each pair below has an identical complete Git
+tree and identical selected source blobs. Original test results and benchmark
+provenance remain bound to their recorded historical revisions. This source
+correspondence does not establish a fresh runtime test, accepted governance,
+deployment or current performance.
+
+| Implementation claim | Historical revision | Current source alias |
+| --- | --- | --- |
+| `selected-fleet-source` | `1c2c499d08e8ee7e7830d2561cf5cae356ede5c5` | `4d60d8b374db326d7b8dfea462ca3b005a8f5b6e` |
+| `raw-input-inventory-implementation` | `5bc02b3ed23d6471a777dc493c9422e8cd08d6f9` | `c4e2a531626ced32c3759cfc3ab2fa1367cfed8b` |

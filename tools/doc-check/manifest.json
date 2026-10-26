@@ -241,7 +241,7 @@
       "document": "docs/EVIDENCE.md",
       "anchor": "current-source-references",
       "status": "implementation",
-      "sourceRevision": "1c2c499d08e8ee7e7830d2561cf5cae356ede5c5",
+      "sourceRevision": "4d60d8b374db326d7b8dfea462ca3b005a8f5b6e",
       "inputs": [
         "phase-record-source",
         "phase-report-source",
@@ -286,7 +286,7 @@
       "document": "docs/EVIDENCE.md",
       "anchor": "offline-raw-input-inventory",
       "status": "implementation",
-      "sourceRevision": "5bc02b3ed23d6471a777dc493c9422e8cd08d6f9",
+      "sourceRevision": "c4e2a531626ced32c3759cfc3ab2fa1367cfed8b",
       "inputs": [
         "raw-json-source",
         "raw-inventory-source",
