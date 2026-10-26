@@ -74,3 +74,16 @@ Source inspection, command execution, hosted checks, benchmark method acceptance
 operator recovery and production readiness are separate. Manual English/privacy
 and semantic/provenance review remain required. No raw operator logs, private
 paths, identities, accounts or credentials belong in public reports.
+
+## Source revision aliases
+
+Implementation source selectors use the current contribution history after
+author metadata normalization. Each pair below has an identical complete Git
+tree and identical selected source blobs. Original test results and benchmark
+provenance remain bound to their recorded historical revisions. This source
+correspondence does not establish a fresh runtime test, accepted governance,
+deployment or current performance.
+
+| Implementation claim | Historical revision | Current source alias |
+| --- | --- | --- |
+| `raw-input-inventory-implementation` | `5bc02b3ed23d6471a777dc493c9422e8cd08d6f9` | `c4e2a531626ced32c3759cfc3ab2fa1367cfed8b` |
