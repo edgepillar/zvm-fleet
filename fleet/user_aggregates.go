@@ -21,8 +21,27 @@ func (r Record) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal(struct {
 		recordAggregateJSON
-		Gas *uint64 `json:"gas,omitempty"`
-	}{recordAggregateJSON(r), gas})
+		Gas     *uint64 `json:"gas,omitempty"`
+		Confirm *int64  `json:"confirmMs,omitempty"`
+		Include *int64  `json:"includeMs,omitempty"`
+		Latency *int64  `json:"latencyMs,omitempty"`
+		Anchor  *int64  `json:"payoutAnchorMs,omitempty"`
+	}{recordAggregateJSON(r), gas, timingScalar(r.ConfirmMS, r.ConfirmKnown), timingScalar(r.IncludeMS, r.IncludeKnown), timingScalar(r.LatencyMS, r.LatencyKnown), timingScalar(r.PayoutAnchorMS, r.PayoutAnchorKnown)})
+}
+
+func timingScalar(value int64, known *bool) *int64 {
+	if value != 0 || known != nil && *known {
+		return &value
+	}
+	return nil
+}
+
+func replayTimingKnown(fields map[string]json.RawMessage, scalar, flag string, value int64, declared *bool) *bool {
+	known := presentScalar(fields, scalar) && value != 0
+	if _, present := fields[flag]; present {
+		known = presentScalar(fields, scalar) && declared != nil && *declared
+	}
+	return &known
 }
 
 func (r *Record) UnmarshalJSON(raw []byte) error {
@@ -34,7 +53,7 @@ func (r *Record) UnmarshalJSON(raw []byte) error {
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return err
 	}
-	if err := canonicalAggregateFields(fields, "gas", "gasKnown"); err != nil {
+	if err := canonicalAggregateFields(fields, "gas", "gasKnown", "confirmMs", "confirmKnown", "includeMs", "includeKnown", "latencyMs", "latencyKnown", "timestampBasis", "payoutAnchorMs", "payoutAnchorKnown"); err != nil {
 		return err
 	}
 	present := presentScalar(fields, "gas")
@@ -43,6 +62,14 @@ func (r *Record) UnmarshalJSON(raw []byte) error {
 		known = present && value.GasKnown != nil && *value.GasKnown
 	}
 	value.GasKnown = &known
+	value.ConfirmKnown = replayTimingKnown(fields, "confirmMs", "confirmKnown", value.ConfirmMS, value.ConfirmKnown)
+	value.IncludeKnown = replayTimingKnown(fields, "includeMs", "includeKnown", value.IncludeMS, value.IncludeKnown)
+	value.LatencyKnown = replayTimingKnown(fields, "latencyMs", "latencyKnown", value.LatencyMS, value.LatencyKnown)
+	value.PayoutAnchorKnown = replayTimingKnown(fields, "payoutAnchorMs", "payoutAnchorKnown", value.PayoutAnchorMS, value.PayoutAnchorKnown)
+	if value.TimestampBasis == userPayoutObservationBasis && !*value.PayoutAnchorKnown {
+		unknown := false
+		value.ConfirmKnown = &unknown
+	}
 	*r = Record(value)
 	return nil
 }
@@ -246,6 +273,7 @@ func recordGasKnown(r Record) bool {
 }
 
 func observeUserAggregate(a *Agg, r Record, profile bool) {
+	a.timings.observe(r)
 	if r.Skipped != "" {
 		a.Skipped++
 		return
@@ -257,7 +285,6 @@ func observeUserAggregate(a *Agg, r Record, profile bool) {
 		} else if !profile {
 			a.OK++
 		}
-		a.latency = append(a.latency, float64(r.LatencyMS))
 		return
 	}
 	if profile && r.Kind != "tx" {
@@ -277,12 +304,6 @@ func observeUserAggregate(a *Agg, r Record, profile bool) {
 		a.Reverted++
 	default:
 		a.Failed++
-	}
-	if r.ConfirmMS > 0 {
-		a.confirm = append(a.confirm, float64(r.ConfirmMS))
-	}
-	if r.Kind == "order" && r.OK {
-		a.latency = append(a.latency, float64(r.LatencyMS))
 	}
 	if r.Kind == "tx" && r.Block != 0 {
 		a.GasExpected++

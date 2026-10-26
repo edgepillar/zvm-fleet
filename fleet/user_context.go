@@ -345,8 +345,9 @@ func (s *UsersSummary) checkRecordContext(r *Record) error {
 			return errors.New("record does not match the declared user roster")
 		}
 	}
-	// Payout T is an L2 block timestamp, not a wall-clock action start.
-	if r.Kind != "payout" && (s.context.start != nil && r.T < s.context.start.UnixMilli() ||
+	// Only legacy payout T is an L2 block anchor. A declared observation start
+	// uses the client clock and must satisfy the enclosing simulation bounds.
+	if (r.Kind != "payout" || r.TimestampBasis == userPayoutObservationBasis) && (s.context.start != nil && r.T < s.context.start.UnixMilli() ||
 		s.context.end != nil && r.T > s.context.end.UnixMilli()) {
 		return errors.New("record lies outside its declared simulation interval")
 	}

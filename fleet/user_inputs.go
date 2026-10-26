@@ -153,10 +153,13 @@ func userRecord(raw []byte) (*Record, error) {
 	}
 	var record *Record
 	if decodeMeasurementJSON(bytes.NewReader(raw), &record) != nil || record == nil || record.T <= 0 || record.User < 0 ||
-		record.Action == "" || record.LatencyMS < 0 || record.ConfirmMS < 0 || record.IncludeMS < 0 || record.Bytes < 0 || record.OK && record.Reverted {
+		record.Action == "" || record.LatencyMS < 0 || record.ConfirmMS < 0 && record.Kind != "payout" || record.IncludeMS < 0 && record.Kind != "tx" || record.Bytes < 0 || record.OK && record.Reverted || record.PayoutAnchorMS < 0 {
 		return nil, errUserInput
 	}
 	if _, known := profileByName(record.Profile); !known {
+		return nil, errUserInput
+	}
+	if record.TimestampBasis != "" && (record.Kind != "payout" || record.TimestampBasis != userPayoutObservationBasis) {
 		return nil, errUserInput
 	}
 	switch record.Kind {
@@ -315,7 +318,7 @@ func renderUserInputs(out *strings.Builder, inputs UserInputEvidence) {
 		fmt.Fprintf(out, ", identifier `%s`, all context files observed: `%t`", inputs.Cohort.RunID, inputs.Cohort.ContextComplete)
 	}
 	out.WriteString(". Identifiers correlate declarations; they do not authenticate a writer or prove atomicity/completion.\n\n")
-	fmt.Fprintf(out, "Rate interval basis: `%s`; last retained record timestamp: `%d` ms. Unknown or zero duration rates are `n/a`. Payout timestamps are L2 block anchors, not wall-clock action starts.\n\n", inputs.Temporal.Basis, inputs.Temporal.LastRetainedRecordMS)
+	fmt.Fprintf(out, "Rate interval basis: `%s`; last retained record timestamp: `%d` ms. Unknown or zero duration rates are `n/a`. Legacy payouts use L2 block anchors; new payouts declare observation-start timestamps with separate anchor availability. Clock offsets are not elapsed client durations.\n\n", inputs.Temporal.Basis, inputs.Temporal.LastRetainedRecordMS)
 	if inputs.Partial {
 		out.WriteString("**PARTIAL INPUT.** These tables use only the retained valid prefix and usable observations. Missing or unfinished input does not establish a complete run.\n\n")
 	}

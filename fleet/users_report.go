@@ -29,88 +29,94 @@ type UsersSummary struct {
 }
 
 type UsersTotals struct {
-	Hours               float64 `json:"hours"`
-	Txs                 int     `json:"txs"`
-	Confirmed           int     `json:"confirmed"`
-	Reverted            int     `json:"reverted"`
-	Failed              int     `json:"failed"` // refused, or no receipt
-	Skipped             int     `json:"skipped"`
-	Reads               int     `json:"reads"`
-	ReadErrors          int     `json:"readErrors"`
-	Orders              int     `json:"orders"`
-	Payouts             int     `json:"payouts"`
-	PayoutsPaid         int     `json:"payoutsPaid"`
-	TxPerSec            float64 `json:"txPerSec"`
-	PeakTxPerSec        float64 `json:"peakTxPerSec"` // busiest window
-	RateKnown           bool    `json:"rateKnown"`
-	PeakRateKnown       bool    `json:"peakRateKnown"`
-	RateBasis           string  `json:"rateBasis"`
-	Confirm             Dist    `json:"confirmMs"`
-	Include             Dist    `json:"includeMs"`
-	Read                Dist    `json:"readMs"`
-	GasTotal            uint64  `json:"gasTotal"`
-	GasTotalExact       string  `json:"gasTotalExact,omitempty"`
-	GasTotalKnown       bool    `json:"gasTotalKnown"`
-	GasTotalUint64Known bool    `json:"gasTotalUint64Known"`
-	GasObservedExact    string  `json:"gasObservedExact,omitempty"`
-	GasSamples          int     `json:"gasSamples"`
-	GasExpected         int     `json:"gasExpected"`
-	Blocks              int     `json:"blocks"` // distinct L2 blocks holding a user transaction
+	Hours               float64          `json:"hours"`
+	Txs                 int              `json:"txs"`
+	Confirmed           int              `json:"confirmed"`
+	Reverted            int              `json:"reverted"`
+	Failed              int              `json:"failed"` // refused, or no receipt
+	Skipped             int              `json:"skipped"`
+	Reads               int              `json:"reads"`
+	ReadErrors          int              `json:"readErrors"`
+	Orders              int              `json:"orders"`
+	Payouts             int              `json:"payouts"`
+	PayoutsPaid         int              `json:"payoutsPaid"`
+	TxPerSec            float64          `json:"txPerSec"`
+	PeakTxPerSec        float64          `json:"peakTxPerSec"` // busiest window
+	RateKnown           bool             `json:"rateKnown"`
+	PeakRateKnown       bool             `json:"peakRateKnown"`
+	RateBasis           string           `json:"rateBasis"`
+	Confirm             UserDistribution `json:"confirmMs"`
+	Include             UserDistribution `json:"includeMs"`
+	Read                UserDistribution `json:"readMs"`
+	Order               UserDistribution `json:"orderMs"`
+	PayoutDelay         UserDistribution `json:"payoutDelayMs"`
+	timings             userTimings
+	GasTotal            uint64 `json:"gasTotal"`
+	GasTotalExact       string `json:"gasTotalExact,omitempty"`
+	GasTotalKnown       bool   `json:"gasTotalKnown"`
+	GasTotalUint64Known bool   `json:"gasTotalUint64Known"`
+	GasObservedExact    string `json:"gasObservedExact,omitempty"`
+	GasSamples          int    `json:"gasSamples"`
+	GasExpected         int    `json:"gasExpected"`
+	Blocks              int    `json:"blocks"` // distinct L2 blocks holding a user transaction
 }
 
 // Agg is one row of the by-profile or by-action tables.
 type Agg struct {
-	Name                string  `json:"name"`
-	Kind                string  `json:"kind"`
-	Users               int     `json:"users,omitempty"`
-	N                   int     `json:"n"`
-	OK                  int     `json:"ok"`
-	Reverted            int     `json:"reverted"`
-	Failed              int     `json:"failed"`
-	Skipped             int     `json:"skipped"`
-	Reads               int     `json:"reads"`
-	ReadErrors          int     `json:"readErrors"`
-	Orders              int     `json:"orders"`
-	Payouts             int     `json:"payouts"`
-	GasMean             float64 `json:"gasMean"`
-	GasMeanKnown        bool    `json:"gasMeanKnown"`
-	GasMeanFloat64Known bool    `json:"gasMeanFloat64Known"`
-	GasMeanNumerator    string  `json:"gasMeanNumerator,omitempty"`
-	GasMeanDenominator  int     `json:"gasMeanDenominator,omitempty"`
-	GasObservedExact    string  `json:"gasObservedExact,omitempty"`
-	GasSamples          int     `json:"gasSamples"`
-	GasExpected         int     `json:"gasExpected"`
-	PerHour             float64 `json:"perUserHour,omitempty"` // transactions per user-hour
-	PerHourKnown        bool    `json:"perUserHourKnown"`
-	Confirm             Dist    `json:"confirmMs"`
-	Latency             Dist    `json:"latencyMs"`
-	confirm             []float64
-	latency             []float64
+	Name                string           `json:"name"`
+	Kind                string           `json:"kind"`
+	Users               int              `json:"users,omitempty"`
+	N                   int              `json:"n"`
+	OK                  int              `json:"ok"`
+	Reverted            int              `json:"reverted"`
+	Failed              int              `json:"failed"`
+	Skipped             int              `json:"skipped"`
+	Reads               int              `json:"reads"`
+	ReadErrors          int              `json:"readErrors"`
+	Orders              int              `json:"orders"`
+	Payouts             int              `json:"payouts"`
+	GasMean             float64          `json:"gasMean"`
+	GasMeanKnown        bool             `json:"gasMeanKnown"`
+	GasMeanFloat64Known bool             `json:"gasMeanFloat64Known"`
+	GasMeanNumerator    string           `json:"gasMeanNumerator,omitempty"`
+	GasMeanDenominator  int              `json:"gasMeanDenominator,omitempty"`
+	GasObservedExact    string           `json:"gasObservedExact,omitempty"`
+	GasSamples          int              `json:"gasSamples"`
+	GasExpected         int              `json:"gasExpected"`
+	PerHour             float64          `json:"perUserHour,omitempty"` // transactions per user-hour
+	PerHourKnown        bool             `json:"perUserHourKnown"`
+	Confirm             UserDistribution `json:"confirmMs"`
+	Include             UserDistribution `json:"includeMs"`
+	Latency             UserDistribution `json:"latencyMs"`
+	Order               UserDistribution `json:"orderMs"`
+	PayoutDelay         UserDistribution `json:"payoutDelayMs"`
+	timings             userTimings
 	gas                 big.Int
 }
 
 // Window is one slice of the run in time.
 type Window struct {
-	Start         time.Time `json:"start"`
-	Txs           int       `json:"txs"`
-	OK            int       `json:"ok"`
-	Failed        int       `json:"failed"`
-	TxPerSec      float64   `json:"txPerSec"`
-	RateKnown     bool      `json:"rateKnown"`
-	Confirm       Dist      `json:"confirmMs"`
-	Read          Dist      `json:"readMs"`
-	Queued        uint64    `json:"relayerQueuedMax"`
-	NodeCPU       float64   `json:"nodeCpu"`
-	EngineCPU     float64   `json:"engineCpu"`
-	RelayerCPU    float64   `json:"relayerCpu"`
-	NodeMem       int64     `json:"nodeMem"`
-	EngineMem     int64     `json:"engineMem"`
-	L2Blocks      uint64    `json:"l2Blocks"`
-	L1Moms        uint64    `json:"l1Momentums"`
-	L2BlocksKnown bool      `json:"l2BlocksKnown"`
-	L1MomsKnown   bool      `json:"l1MomentumsKnown"`
-	confirm       []float64
-	read          []float64
+	Start         time.Time        `json:"start"`
+	Txs           int              `json:"txs"`
+	OK            int              `json:"ok"`
+	Failed        int              `json:"failed"`
+	TxPerSec      float64          `json:"txPerSec"`
+	RateKnown     bool             `json:"rateKnown"`
+	Confirm       UserDistribution `json:"confirmMs"`
+	Include       UserDistribution `json:"includeMs"`
+	Read          UserDistribution `json:"readMs"`
+	Order         UserDistribution `json:"orderMs"`
+	Queued        uint64           `json:"relayerQueuedMax"`
+	NodeCPU       float64          `json:"nodeCpu"`
+	EngineCPU     float64          `json:"engineCpu"`
+	RelayerCPU    float64          `json:"relayerCpu"`
+	NodeMem       int64            `json:"nodeMem"`
+	EngineMem     int64            `json:"engineMem"`
+	L2Blocks      uint64           `json:"l2Blocks"`
+	L1Moms        uint64           `json:"l1Momentums"`
+	L2BlocksKnown bool             `json:"l2BlocksKnown"`
+	L1MomsKnown   bool             `json:"l1MomentumsKnown"`
+	timings       userTimings
 	Resources     ResourceObservations `json:"resourceObservations"`
 	l2, l1        sampleCounterWindow
 }
@@ -196,7 +202,6 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 		}
 		return windows[i]
 	}
-	var confirm, include, read []float64
 	blocks := map[uint64]bool{}
 	t := &s.Totals
 	gasSum := new(big.Int)
@@ -217,7 +222,7 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 			actions[actionKey] = aa
 		}
 		var w *Window
-		if r.Kind == "tx" || r.Kind == "read" {
+		if r.Kind == "tx" || r.Kind == "read" || r.Kind == "order" {
 			if time.UnixMilli(r.T).Sub(anchor)/WindowSize >= userReportWindowLimit {
 				return nil, fmt.Errorf("user record exceeds the report window bound")
 			}
@@ -225,6 +230,10 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 		}
 		observeUserAggregate(pa, r, true)
 		observeUserAggregate(aa, r, false)
+		t.timings.observe(r)
+		if w != nil {
+			w.timings.observe(r)
+		}
 		if r.Error != "" && r.Skipped == "" {
 			errs[[3]string{r.Kind, r.Action, errorKind(r.Error)}]++
 		}
@@ -236,8 +245,6 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 			if !r.OK {
 				t.ReadErrors++
 			}
-			read = append(read, float64(r.LatencyMS))
-			w.read = append(w.read, float64(r.LatencyMS))
 		case r.Kind == "order":
 			t.Orders++
 		case r.Kind == "payout":
@@ -266,13 +273,6 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 					gasSum.Add(gasSum, new(big.Int).SetUint64(r.GasUsed))
 				}
 			}
-			if r.ConfirmMS > 0 {
-				confirm = append(confirm, float64(r.ConfirmMS))
-				w.confirm = append(w.confirm, float64(r.ConfirmMS))
-			}
-			if r.IncludeMS > 0 {
-				include = append(include, float64(r.IncludeMS))
-			}
 		}
 	}
 	simEnd := s.End
@@ -281,7 +281,8 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 	if t.Hours > 0 {
 		t.TxPerSec = float64(t.Txs) / (t.Hours * 3600)
 	}
-	t.Confirm, t.Include, t.Read, t.Blocks = dist(confirm), dist(include), dist(read), len(blocks)
+	t.Blocks = len(blocks)
+	finishUserTimingTotals(t)
 	finishUserGasTotal(t, gasSum)
 	s.Storage = userStorageMetrics(s.Phase, t.Confirmed)
 
@@ -343,7 +344,7 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 			t.PeakTxPerSec = max(t.PeakTxPerSec, w.TxPerSec)
 			t.PeakRateKnown = true
 		}
-		w.Confirm, w.Read = dist(w.confirm), dist(w.read)
+		finishUserTimingWindow(w)
 		w.L2Blocks, w.L2BlocksKnown = w.l2.result()
 		w.L1Moms, w.L1MomsKnown = w.l1.result()
 	}
@@ -354,7 +355,7 @@ func SummarizeUsers(dir string) (*UsersSummary, error) {
 		count[pc.Profile.Name] = pc.Count
 	}
 	finish := func(a *Agg) {
-		a.Confirm, a.Latency = dist(a.confirm), dist(a.latency)
+		finishUserTimingAggregate(a)
 		finishUserGas(a)
 	}
 	for _, p := range Profiles {
@@ -446,22 +447,22 @@ func UsersMarkdown(s *UsersSummary) string {
 	row("Skipped (nothing to do)", n64(t.Skipped))
 	row("Mean offered tx/s", userRate(t.TxPerSec, t.RateKnown, 2))
 	row(fmt.Sprintf("Busiest %s tx/s", WindowSize), userRate(t.PeakTxPerSec, t.PeakRateKnown, 2))
-	row("Confirmation p50 / p90 / p99 / max, s", fmt.Sprintf("%s / %s / %s / %s", secs(t.Confirm.P50), secs(t.Confirm.P90), secs(t.Confirm.P99), secs(t.Confirm.Max)))
-	row("Submit → block timestamp p50 / p90, s", fmt.Sprintf("%s / %s", secs(t.Include.P50), secs(t.Include.P90)))
+	row("Confirmation p50 / p90 / p99 / max, s", fmt.Sprintf("%s / %s / %s / %s", userTimingSecs(t.Confirm, "p50"), userTimingSecs(t.Confirm, "p90"), userTimingSecs(t.Confirm, "p99"), userTimingSecs(t.Confirm, "max")))
+	row("Submit → block timestamp p50 / p90, s", fmt.Sprintf("%s / %s", userTimingSecs(t.Include, "p50"), userTimingSecs(t.Include, "p90")))
 	row("L2 blocks carrying a user tx", n64(t.Blocks))
 	row("Gas used", userGasTotal(&t))
 	row("Signed orders posted", n64(t.Orders))
 	row("Withdrawals paid on NoM", fmt.Sprintf("%d of %d", t.PayoutsPaid, t.Payouts))
 	row("Page loads", fmt.Sprintf("%s (%d errors)", n64(t.Reads), t.ReadErrors))
-	row("Page load p50 / p90 / p99, ms", fmt.Sprintf("%.0f / %.0f / %.0f", t.Read.P50, t.Read.P90, t.Read.P99))
+	row("Page load p50 / p90 / p99, ms", fmt.Sprintf("%s / %s / %s", userTimingMS(t.Read, "p50"), userTimingMS(t.Read, "p90"), userTimingMS(t.Read, "p99")))
 
 	b.WriteString("\n## By profile\n\nTransaction columns exclude reads, signed orders and payouts. Those have separate counts; nontransaction outcomes remain in the by-action rows.\n\n| Profile | Users | Txs | Tx/user-hour | OK | Reverted | Failed | Skipped | Confirm p50 s | p90 s | p99 s | Page loads | Load p50 ms | Orders | Payouts | Read errors |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
 	for _, a := range s.Profiles {
-		fmt.Fprintf(&b, "| %s | %d | %s | %s | %s | %d | %d | %d | %s | %s | %s | %s | %.0f | %d | %d | %d |\n", a.Name, a.Users, n64(a.N), userRate(a.PerHour, a.PerHourKnown, 1),
-			n64(a.OK), a.Reverted, a.Failed, a.Skipped, secs(a.Confirm.P50), secs(a.Confirm.P90), secs(a.Confirm.P99), n64(a.Reads), a.Latency.P50, a.Orders, a.Payouts, a.ReadErrors)
+		fmt.Fprintf(&b, "| %s | %d | %s | %s | %s | %d | %d | %d | %s | %s | %s | %s | %s | %d | %d | %d |\n", a.Name, a.Users, n64(a.N), userRate(a.PerHour, a.PerHourKnown, 1),
+			n64(a.OK), a.Reverted, a.Failed, a.Skipped, userTimingSecs(a.Confirm, "p50"), userTimingSecs(a.Confirm, "p90"), userTimingSecs(a.Confirm, "p99"), n64(a.Reads), userTimingMS(a.Latency, "p50"), a.Orders, a.Payouts, a.ReadErrors)
 	}
 
-	b.WriteString("\n## By action\n\nConfirmation is submit → receipt seen, what a wallet shows as pending. A payout is a withdrawal's L2 block → the vault's payment on NoM. Orders and page loads have no confirmation; their column is the request's own latency.\n\n")
+	b.WriteString("\n## By action\n\nConfirmation describes retained included transactions, including reverts. Orders and page loads use request latency, including failed requests. Signed payout clock offsets are reported separately in Timing observations; they are not transaction confirmation.\n\n")
 	b.WriteString("Gas applies only to included transaction records. Totals and means require complete gas coverage of that retained subset. JSON keeps exact decimal sums and rational mean operands; compatibility numeric fields require their representability flags. Displayed gas means use integer floor.\n\n| Action | Kind | Count | OK | Reverted | Failed | Skipped | Gas mean (integer floor) | p50 s | p90 s | p99 s | Request p50 ms | p90 ms |\n|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
 	for _, a := range s.Actions {
 		n := a.N
@@ -470,16 +471,16 @@ func UsersMarkdown(s *UsersSummary) string {
 		}
 		gas := userGasMean(a)
 		fmt.Fprintf(&b, "| %s | %s | %s | %s | %d | %d | %d | %s | %s | %s | %s | %s | %s |\n", a.Name, a.Kind, n64(n), n64(a.OK),
-			a.Reverted, a.Failed, a.Skipped, gas, secs(a.Confirm.P50), secs(a.Confirm.P90), secs(a.Confirm.P99),
-			msOrBlank(a.Latency.P50), msOrBlank(a.Latency.P90))
+			a.Reverted, a.Failed, a.Skipped, gas, userTimingSecs(a.Confirm, "p50"), userTimingSecs(a.Confirm, "p90"), userTimingSecs(a.Confirm, "p99"),
+			userTimingMS(a.Latency, "p50"), userTimingMS(a.Latency, "p90"))
 	}
 
 	fmt.Fprintf(&b, "\n## Over time (%s windows)\n\nCPU is the mean over that metric's usable observations, in percent of one core; memory is its observed peak. Missing metrics are `n/a`. Exact profile names select the node, primary engine candidates and relayer.\n\n", WindowSize)
 	b.WriteString("L2 blocks and momentums require two distinct, ordered sample times with usable nondecreasing counters. Missing observations, counter resets or conflicting times produce `n/a`; a measured zero needs both endpoints. These are observed sample spans within each window, excluding unobserved edges.\n\n")
 	b.WriteString("| Window (UTC) | Txs | Tx/s | Failed | Confirm p50 s | p90 s | Load p50 ms | Relayer queue max | L2 blocks | Momentums | node CPU | engine CPU | relayer CPU | node MiB | engine MiB |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
 	for _, w := range s.Windows {
-		fmt.Fprintf(&b, "| %s | %s | %s | %d | %s | %s | %.0f | %s | %s | %s | %s | %s | %s | %s | %s |\n",
-			w.Start.UTC().Format("15:04"), n64(w.Txs), userRate(w.TxPerSec, w.RateKnown, 2), w.Failed, secs(w.Confirm.P50), secs(w.Confirm.P90), w.Read.P50,
+		fmt.Fprintf(&b, "| %s | %s | %s | %d | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
+			w.Start.UTC().Format("15:04"), n64(w.Txs), userRate(w.TxPerSec, w.RateKnown, 2), w.Failed, userTimingSecs(w.Confirm, "p50"), userTimingSecs(w.Confirm, "p90"), userTimingMS(w.Read, "p50"),
 			sampleWindowCount(w.Queued, w.Resources.RelayerQueued > 0), sampleWindowCount(w.L2Blocks, w.L2BlocksKnown), sampleWindowCount(w.L1Moms, w.L1MomsKnown),
 			resourcePercent(w.NodeCPU, w.Resources.NodeCPU), resourcePercent(w.EngineCPU, w.Resources.EngineCPU), resourcePercent(w.RelayerCPU, w.Resources.RelayerCPU),
 			resourceMemory(w.NodeMem, w.Resources.NodeMem), resourceMemory(w.EngineMem, w.Resources.EngineMem))
@@ -511,6 +512,7 @@ func UsersMarkdown(s *UsersSummary) string {
 			fmt.Fprintf(&b, "| %s | %s | %s | %d |\n", e.Kind, e.Action, strings.ReplaceAll(e.Error, "|", "\\|"), e.N)
 		}
 	}
+	writeUserTimingObservations(&b, s)
 	return b.String()
 }
 

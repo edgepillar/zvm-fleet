@@ -182,24 +182,30 @@ const (
 // order posted to the node. They are streamed to records.jsonl as they finish,
 // so a run that dies at hour five still has its first five hours.
 type Record struct {
-	RunID     string `json:"runId,omitempty"`
-	T         int64  `json:"t"` // start, unix ms
-	User      int    `json:"user"`
-	Profile   string `json:"profile"`
-	Action    string `json:"action"`
-	Kind      string `json:"kind"` // tx, read, order, payout
-	OK        bool   `json:"ok"`
-	Hash      string `json:"hash,omitempty"`
-	Block     uint64 `json:"block,omitempty"`
-	GasUsed   uint64 `json:"gas,omitempty"`
-	GasKnown  *bool  `json:"gasKnown,omitempty"`
-	Reverted  bool   `json:"reverted,omitempty"`
-	Skipped   string `json:"skipped,omitempty"`   // nothing to do, e.g. no listing to buy
-	ConfirmMS int64  `json:"confirmMs,omitempty"` // submit → receipt seen, what the user waits
-	IncludeMS int64  `json:"includeMs,omitempty"` // submit → the block's timestamp
-	LatencyMS int64  `json:"latencyMs,omitempty"` // reads and orders: the request
-	Bytes     int64  `json:"bytes,omitempty"`
-	Error     string `json:"error,omitempty"`
+	RunID             string `json:"runId,omitempty"`
+	T                 int64  `json:"t"` // start, unix ms
+	User              int    `json:"user"`
+	Profile           string `json:"profile"`
+	Action            string `json:"action"`
+	Kind              string `json:"kind"` // tx, read, order, payout
+	OK                bool   `json:"ok"`
+	Hash              string `json:"hash,omitempty"`
+	Block             uint64 `json:"block,omitempty"`
+	GasUsed           uint64 `json:"gas,omitempty"`
+	GasKnown          *bool  `json:"gasKnown,omitempty"`
+	Reverted          bool   `json:"reverted,omitempty"`
+	Skipped           string `json:"skipped,omitempty"`   // nothing to do, e.g. no listing to buy
+	ConfirmMS         int64  `json:"confirmMs,omitempty"` // submit → receipt seen, what the user waits
+	IncludeMS         int64  `json:"includeMs,omitempty"` // submit → the block's timestamp
+	LatencyMS         int64  `json:"latencyMs,omitempty"` // reads and orders: the request
+	ConfirmKnown      *bool  `json:"confirmKnown,omitempty"`
+	IncludeKnown      *bool  `json:"includeKnown,omitempty"`
+	LatencyKnown      *bool  `json:"latencyKnown,omitempty"`
+	TimestampBasis    string `json:"timestampBasis,omitempty"`
+	PayoutAnchorMS    int64  `json:"payoutAnchorMs,omitempty"`
+	PayoutAnchorKnown *bool  `json:"payoutAnchorKnown,omitempty"`
+	Bytes             int64  `json:"bytes,omitempty"`
+	Error             string `json:"error,omitempty"`
 }
 
 type sim struct {
@@ -807,6 +813,8 @@ func (u *user) send(ctx context.Context, rec *Record, req *txReq) {
 		wctx := u.s.followContext(ctx)
 		r, err := u.receipt(wctx, tx.Hash(), 10*time.Minute)
 		rec.ConfirmMS = time.Since(submitted).Milliseconds()
+		known := err == nil
+		rec.ConfirmKnown = &known
 		if err != nil {
 			rec.Error = err.Error()
 			rec.ConfirmMS = 0
@@ -819,9 +827,12 @@ func (u *user) send(ctx context.Context, rec *Record, req *txReq) {
 		rec.Block, rec.GasUsed = r.BlockNumber.Uint64(), r.GasUsed
 		gasKnown := true
 		rec.GasKnown = &gasKnown
-		if bt, ok := u.s.blockTimeOf(wctx, r.BlockNumber); ok {
-			rec.IncludeMS = bt*1000 - submitted.UnixMilli()
+		bt, ok := u.s.blockTimeOf(wctx, r.BlockNumber)
+		blockMS, ok := userBlockMilliseconds(bt, ok)
+		if ok {
+			rec.IncludeMS, ok = userClockDifference(blockMS, submitted.UnixMilli())
 		}
+		rec.IncludeKnown = &ok
 		rec.Reverted = r.Status != types.ReceiptStatusSuccessful
 		rec.OK = !rec.Reverted
 		if rec.OK && req.after != nil {
@@ -853,11 +864,15 @@ func (u *user) receipt(ctx context.Context, h common.Hash, timeout time.Duration
 }
 
 func (s *sim) blockTimeOf(ctx context.Context, n *big.Int) (int64, bool) {
+	if n == nil || !n.IsUint64() {
+		return 0, false
+	}
 	if v, ok := s.blockTime.Load(n.Uint64()); ok {
-		return v.(int64), true
+		value := v.(int64)
+		return value, value >= 0
 	}
 	h, err := s.e.Eth.HeaderByNumber(ctx, n)
-	if err != nil {
+	if err != nil || h == nil || h.Time > math.MaxInt64 {
 		return 0, false
 	}
 	s.blockTime.Store(n.Uint64(), int64(h.Time))
@@ -966,7 +981,7 @@ func (u *user) minted(r *types.Receipt) {
 func (u *user) list(ctx context.Context, rec *Record) {
 	e := u.s.e
 	t0 := time.Now()
-	defer func() { rec.LatencyMS = time.Since(t0).Milliseconds() }()
+	defer func() { rec.LatencyMS = time.Since(t0).Milliseconds(); known := true; rec.LatencyKnown = &known }()
 	for {
 		u.ownedMu.Lock()
 		if len(u.owned) == 0 {
@@ -1085,18 +1100,19 @@ func (u *user) followWithdrawal(ctx context.Context, r *types.Receipt) {
 		return
 	}
 	s := u.s
-	bt, _ := s.blockTimeOf(ctx, r.BlockNumber)
+	bt, anchorKnown := s.blockTimeOf(ctx, r.BlockNumber)
+	started := time.Now().UnixMilli()
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		rec := &Record{T: bt * 1000, User: u.id, Profile: u.p.Name, Action: "withdraw-payout", Kind: "payout",
-			Hash: r.TxHash.Hex()}
+		rec := userPayoutRecord(started, bt, anchorKnown)
+		rec.User, rec.Profile, rec.Action, rec.Kind, rec.Hash = u.id, u.p.Name, "withdraw-payout", "payout", r.TxHash.Hex()
 		deadline := time.Now().Add(90 * time.Minute)
 		for time.Now().Before(deadline) {
 			w, err := bridge.ReadWithdrawal(ctx, s.e.Eth, id)
 			if err == nil && w.PaidIn != (common.Hash{}) {
 				rec.OK = true
-				rec.ConfirmMS = time.Now().UnixMilli() - rec.T
+				observeUserPayoutDelay(rec, time.Now().UnixMilli())
 				s.emit(rec)
 				return
 			}
@@ -1160,6 +1176,8 @@ func (u *user) browse(ctx context.Context, rec *Record) {
 	}
 	wg.Wait()
 	rec.LatencyMS = time.Since(t0).Milliseconds()
+	known := true
+	rec.LatencyKnown = &known
 	rec.Bytes = bytes.Load()
 	if v := bad.Load(); v != nil {
 		rec.Error = v.(string)

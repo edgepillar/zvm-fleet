@@ -307,8 +307,11 @@ durability or proof of a complete run. `runCompletion` stays `not-established`.
 
 User replay rejects reversed or inconsistent enclosing/simulation bounds and
 wall-clock action records outside a declared interval. JSONL timestamps have
-millisecond resolution; bound comparisons use that resolution. Payout record
-timestamps are L2 block anchors and are not treated as wall-clock action starts.
+millisecond resolution; bound comparisons use that resolution. Legacy payout
+timestamps are L2 block anchors. New payout records declare
+`timestampBasis: payout-observation-start`, retain separate `payoutAnchorMs`
+availability and satisfy client-clock bounds. An unavailable anchor no longer
+forces an unreplayable zero timestamp into a terminal payout record.
 The report retains exact interval endpoints and states whether its rate basis is
 `declared-simulation`, `declared-start-retained-prefix` or
 `retained-record-start-span`. Declared start/end intervals retain idle time after
@@ -362,14 +365,48 @@ Profile transaction counts/outcomes and per-user-hour rates exclude reads, order
 and payouts. Separate counts retain those event kinds, and nontransaction outcomes
 remain in by-action rows. Actions and errors are keyed by kind as well as action
 name, so a shared name cannot merge unlike events. Equal-frequency errors have a
-stable kind/action/error order. Latency-distribution availability, other writer
-boundaries and full-system qualification remain separate acceptance work.
+stable kind/action/error order. Other writer boundaries and full-system
+qualification remain separate acceptance work.
+
+User timing capture/replay distinguishes `confirmKnown`, `includeKnown` and
+`latencyKnown`. A measured zero retains its scalar and declaration. Missing/null
+values, false/null declarations and ambiguous legacy zero remain unavailable;
+true cannot invent an absent scalar. Nonzero legacy timings remain usable within
+their eligible cohort. Timing field names must be canonical. Negative elapsed
+request/transaction-confirmation durations are refused. Block and payout clock
+offsets can be signed and are never clamped or merged with elapsed duration.
+
+User distributions retain exact decimal min/quantiles/max and arbitrary-precision
+mean numerator/denominator. Quantiles use `floor((n-1)*p)`, without interpolation;
+the original lower-index policy is preserved using integer arithmetic. Owned
+vectors are sorted in place without a second full vector copy. Compatibility
+quantiles require `quantilesFloat64Known`; compatibility mean requires
+`meanFloat64Known`. Unrepresentable compatibility values stay unavailable.
+Markdown uses exact operands with nearest-even seconds rounding, showing measured
+zero and `n/a` separately. The generic service-phase distribution is unchanged.
+
+`known`, `n`, `expected`, `complete` and `basis` describe each retained timing
+cohort. Transaction confirmation and submit-to-block offset use non-skipped
+included records, including reverts. Page/order request cohorts include failed
+requests; skipped work is excluded. Paid payout rows have a separate clock-offset
+distribution. New payout delays also need an observed, representable block
+anchor; missing anchors remain explicit. No block/payout clock difference proves
+clock synchronization, elapsed wallet wait or finality.
+
+Totals, profiles, actions and applicable client-clock windows retain independent
+coverage. Profile page latency excludes orders; order metrics remain separate.
+Payout clock offsets do not enter transaction confirmation or client-action
+windows. The Timing observations table retains exact statistics and coverage;
+complete coverage applies only to retained eligible rows, not the whole run.
+Broader timing fuzz, controlled performance measurement, real services and
+Windows capture remain unqualified.
 
 The existing Go CI job adds a six-minute race step and a three-minute fuzz step
 after build/vet/tests, reusing their module/toolchain inputs. The fuzzer targets
 the standard-library-only `internal/measurement` package before the broader race
 step, so its build does not instrument the harness dependencies. The race step
-covers both Fleet and that internal package.
+covers both Fleet and that internal package. A separate three-minute CLI package
+race step also runs with offline dependencies and serial package builds.
 The counter fuzzer runs for five seconds with one worker against an independent
 exact-rational oracle. These controls do not run the whole-system benchmark.
 
