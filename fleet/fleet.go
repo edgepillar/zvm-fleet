@@ -264,13 +264,16 @@ func (e *Env) RunPhases(ctx context.Context, phases []Phase) error {
 		// otherwise a phase measures what the last one left behind. Measured on
 		// chain 71 on 2026-09-17: saturation left 8,908 queued at 24x the fusion
 		// price, and the next phase would have run inside that.
-		waited, gaveUp := e.settle(ctx, 15*time.Minute)
-		rec := &PhaseRecord{ID: ph.ID, Title: ph.Title, StartedAt: time.Now().UTC(), Data: map[string]any{}}
-		if waited > time.Second {
-			rec.Data["settle"] = map[string]any{"waitedSeconds": waited.Seconds(), "gaveUp": gaveUp}
+		settled := e.settleState(ctx, 15*time.Minute)
+		if err := ctx.Err(); err != nil {
+			return err
 		}
+		rec := &PhaseRecord{ID: ph.ID, Title: ph.Title, StartedAt: time.Now().UTC(), Data: map[string]any{"settle": settled}}
 		e.Log.Info("phase", "id", ph.ID, "title", ph.Title)
 		rec.Before = e.snapshot(ctx)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 
 		sctx, stop := context.WithCancel(ctx)
 		var wg sync.WaitGroup
@@ -379,62 +382,4 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
-}
-
-// settlePrice is "close enough to base to start a phase", in go-zenon's
-// thousandths: 1.2x, the same threshold `zvm bench suite` uses.
-const settlePrice = 1_200
-
-// settle waits until the relayer holds nothing and, under dynamic plasma, the
-// fusion price is back near its base — or max passes, which it reports.
-func (e *Env) settle(ctx context.Context, max time.Duration) (time.Duration, bool) {
-	start := time.Now()
-	for {
-		var info struct {
-			Relayer struct {
-				Queued        int `json:"queued"`
-				PostedPending int `json:"postedPending"`
-			} `json:"relayer"`
-		}
-		busy := false
-		if e.getJSON(ctx, "/api/info", &info) == nil {
-			busy = info.Relayer.Queued > 0 || info.Relayer.PostedPending > 0
-		}
-		var price uint64
-		hot := false
-		if m, err := e.L1.FrontierMomentum(ctx); err == nil {
-			price = m.FusionPrice()
-			// The L2's own fee market too: a phase's wallets sign with a cap
-			// sized from the base fee they start at, so starting at 5x the
-			// floor — where phase 01's 16.75 M-gas funding calls left chain 70
-			// — makes every call reserve 5x what it will pay, and wallets that
-			// could afford the transfer cannot afford the reservation.
-			if h, err := e.Eth.HeaderByNumber(ctx, nil); err == nil && h.BaseFee != nil {
-				floor := new(big.Int).SetUint64(e.Rollup.MinBaseFeeAt(m.Height))
-				limit := new(big.Int).Div(new(big.Int).Mul(floor, big.NewInt(settlePrice)), big.NewInt(1000))
-				hot = floor.Sign() > 0 && h.BaseFee.Cmp(limit) > 0
-			}
-		}
-		if !busy && !hot && price <= settlePrice {
-			return time.Since(start), false
-		}
-		// A backlog is worth the long wait; a price a little above the
-		// threshold with nothing queued is not — chain 71 sat at 1.275x for
-		// fifteen minutes with an empty relayer. Give the price what
-		// `zvm bench suite` gives it.
-		if !busy && time.Since(start) > 3*time.Minute {
-			e.Log.Warn("starting the phase before prices settled", "fusionPrice", float64(price)/1000, "baseFeeHigh", hot)
-			return time.Since(start), true
-		}
-		if time.Since(start) > max {
-			e.Log.Warn("chain did not settle before the phase", "queued", info.Relayer.Queued,
-				"posted", info.Relayer.PostedPending, "fusionPrice", float64(price)/1000, "baseFeeHigh", hot)
-			return time.Since(start), true
-		}
-		select {
-		case <-ctx.Done():
-			return time.Since(start), true
-		case <-time.After(5 * time.Second):
-		}
-	}
 }

@@ -124,6 +124,24 @@ ambiguous. Summary JSON includes `l2BlocksKnown` and `l1MomentumsKnown`; consume
 must use them before interpreting the corresponding numeric fields. This does
 not qualify other resource columns, corrupt JSONL handling or phase scheduling.
 
+Before a phase, readiness requires usable relayer queue/pending counts, an L1
+momentum and the applicable L2 fee observation. An unavailable or invalid input
+cannot establish an empty/calm network. Legacy L1 momentums retain the fixed
+fusion-price rule; dynamic-plasma momentums need an explicit valid price. A
+pre-fee L2 header remains usable when the configured fee floor is zero.
+
+The existing 1.2x fee thresholds, five-second polling interval and bounded
+fallback policy remain: phases wait at most fifteen minutes; observed empty
+queues with known elevated fees retain the shorter three-minute price wait.
+The maximum includes the probes themselves. Unknown inputs use the full wait
+budget and end as a timeout, rather than a successful readiness observation.
+The phase records the last input availability, exact counters/fee strings,
+attempt count, elapsed time and `settled`, `price-timeout` or `timeout` reason,
+including immediate successful checks. Read-success does not assert freshness,
+authentication, finality or complete network health. A timeout still permits
+the existing phase fallback and remains visibly `gaveUp: true`; caller
+cancellation returns before the next phase starts.
+
 The existing Go CI job adds a six-minute race step and a three-minute fuzz step
 after build/vet/tests, reusing their module/toolchain inputs. The fuzzer targets
 the standard-library-only `internal/measurement` package before the broader race
