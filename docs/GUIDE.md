@@ -235,9 +235,27 @@ directory must be absent or empty. An exclusive `user-run.json` marker selects
 one cooperating writer; existing evidence is never adopted or removed. A failed
 claim may retain its incomplete marker for inspection. New records, samples,
 user/profile metadata and phase files use exclusive creation. Claimed directory
-and marker identity/content are rechecked before output or phase execution.
+and marker identity/content are rechecked at phase and file I/O boundaries.
 Phase IDs must be local filenames; duplicate or existing claimed phase output is
 refused before probes start. Generic Fleet rerun behavior remains separate.
+
+Claimed user metadata, records, samples, phase files and state use an opened
+directory root. Renaming the output path cannot redirect these opens into a
+replacement directory. Each metadata operation closes its root; a stream holds
+its own root until close. Streams check the claim before and after underlying
+writes and on close. A detected change enters the existing sticky failure and
+cancellation path. Already written prefixes are preserved; buffered rows are not
+durable evidence. This is an I/O-boundary check, not continuous observation or
+authentication against another writer.
+
+User initialization refuses unexpected `state.json` before container discovery.
+The first state save creates the file exclusively. Later saves require the same
+regular file, metadata and retained-byte hash, open it without truncation, and
+write through that verified descriptor. Replaced or modified state is refused;
+unrelated evidence is preserved. A failed write may leave a partial owned state
+file requiring inspection. State updates do not establish atomic replacement,
+`fsync`, crash/power-loss recovery, cross-file commits or report-pair publication.
+Other benchmark-run writers and CLI report replacement remain separate work.
 
 A randomly generated 128-bit `runId` accompanies user records, samples, profile
 metadata, user metadata and phase records, including the phase's user-metadata

@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,11 +20,13 @@ type userRunClaim struct {
 	id           string
 	dir, marker  os.FileInfo
 	markerSHA256 [32]byte
+	state        os.FileInfo
+	stateSHA256  [32]byte
 }
 
 // StartUserRun claims a fresh output directory before Init can write to it.
 // The random identifier correlates cooperating writers; it is not authentication.
-func (e *Env) StartUserRun() error {
+func (e *Env) StartUserRun() (result error) {
 	if !e.runMu.TryLock() {
 		return errors.New("cannot claim user output during phase execution")
 	}
@@ -51,6 +52,15 @@ func (e *Env) StartUserRun() error {
 	if err != nil || !dir.IsDir() {
 		return errors.New("user output directory is unavailable")
 	}
+	root, err := os.OpenRoot(e.Out)
+	if err != nil {
+		return err
+	}
+	defer func() { result = errors.Join(result, root.Close()) }()
+	opened, err := root.Stat(".")
+	if err != nil || !os.SameFile(dir, opened) {
+		return errors.New("user output directory changed before its claim")
+	}
 	var token [16]byte
 	if _, err := rand.Read(token[:]); err != nil {
 		return fmt.Errorf("creating user run identifier: %w", err)
@@ -64,30 +74,27 @@ func (e *Env) StartUserRun() error {
 	if err != nil {
 		return err
 	}
-	if err := writeNewUserFile(filepath.Join(e.Out, userRunFile), raw); err != nil {
+	f, err := root.OpenFile(userRunFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
 		return err
 	}
-	marker, err := os.Lstat(filepath.Join(e.Out, userRunFile))
+	if err := writeUserBytes(f, raw); err != nil {
+		return err
+	}
+	marker, err := root.Lstat(userRunFile)
 	after, dirErr := os.Lstat(e.Out)
-	entries, readErr := os.ReadDir(e.Out)
+	directory, openErr := root.Open(".")
+	if openErr != nil {
+		return openErr
+	}
+	entries, readErr := directory.ReadDir(-1)
+	readErr = errors.Join(readErr, directory.Close())
 	if err != nil || dirErr != nil || readErr != nil || !os.SameFile(dir, after) ||
 		!marker.Mode().IsRegular() || len(entries) != 1 || entries[0].Name() != userRunFile {
 		return errors.New("user output changed during its claim; retained files require inspection")
 	}
 	e.userRun = &userRunClaim{id: id, dir: dir, marker: marker, markerSHA256: sha256.Sum256(raw)}
 	return e.checkUserRun()
-}
-
-func writeNewUserFile(path string, raw []byte) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	n, writeErr := f.Write(raw)
-	if writeErr == nil && n != len(raw) {
-		writeErr = io.ErrShortWrite
-	}
-	return errors.Join(writeErr, f.Close())
 }
 
 func (e *Env) userRunToken() string {
@@ -98,27 +105,11 @@ func (e *Env) userRunToken() string {
 }
 
 func (e *Env) checkUserRun() error {
-	if e.userRun == nil {
-		return errors.New("user output must be claimed with StartUserRun before Init")
-	}
-	dir, err := os.Lstat(e.Out)
-	if err != nil || !dir.IsDir() || !os.SameFile(dir, e.userRun.dir) {
-		return errors.New("claimed user output directory changed")
-	}
-	path := filepath.Join(e.Out, userRunFile)
-	f, before, err := openUserInput(path)
+	r, err := e.openUserRoot()
 	if err != nil {
-		return errors.New("user run marker is unavailable")
+		return err
 	}
-	defer f.Close()
-	if !os.SameFile(before, e.userRun.marker) || before.Size() > 1024 {
-		return errors.New("user run marker changed")
-	}
-	raw, err := io.ReadAll(io.LimitReader(f, 1025))
-	if err != nil || !stableUserInput(path, f, before, int64(len(raw))) || sha256.Sum256(raw) != e.userRun.markerSHA256 {
-		return errors.New("user run marker changed")
-	}
-	return nil
+	return r.Close()
 }
 
 type UserCohortEvidence struct {

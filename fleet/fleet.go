@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math/big"
 	"net/http"
@@ -162,6 +163,9 @@ func (e *Env) saveState() error {
 	if err != nil {
 		return err
 	}
+	if e.userRun != nil {
+		return e.writeUserState(raw)
+	}
 	return os.WriteFile(e.statePath(), raw, 0o644)
 }
 
@@ -223,14 +227,13 @@ func (e *Env) StreamSamples() (func() error, error) {
 			return nil, errors.New("sample stream already active")
 		}
 	}
-	flags := os.O_CREATE | os.O_APPEND | os.O_WRONLY
+	var f io.WriteCloser
+	var err error
 	if e.userRun != nil {
-		if err := e.checkUserRun(); err != nil {
-			return nil, err
-		}
-		flags = os.O_CREATE | os.O_EXCL | os.O_WRONLY
+		f, err = e.openUserOutput("samples.jsonl")
+	} else {
+		f, err = os.OpenFile(filepath.Join(e.Out, "samples.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	}
-	f, err := os.OpenFile(filepath.Join(e.Out, "samples.jsonl"), flags, 0o644)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +267,11 @@ func (e *Env) Init(ctx context.Context) error {
 		}
 	}
 	e.http = bench.PooledHTTP(60 * time.Second)
-	if err := os.MkdirAll(filepath.Join(e.Out, "runs"), 0o755); err != nil {
+	if e.userRun != nil {
+		if err := e.prepareUserOutput(); err != nil {
+			return err
+		}
+	} else if err := os.MkdirAll(filepath.Join(e.Out, "runs"), 0o755); err != nil {
 		return err
 	}
 	if e.Names.Node == "" {
@@ -286,14 +293,18 @@ func (e *Env) Init(ctx context.Context) error {
 		return err
 	}
 	if e.userRun != nil {
-		err = writeNewUserFile(filepath.Join(e.Out, "names.json"), raw)
+		err = e.writeUserOutput("names.json", raw)
 	} else {
 		err = os.WriteFile(filepath.Join(e.Out, "names.json"), raw, 0o644)
 	}
 	if err != nil {
 		return fmt.Errorf("writing node profile: %w", err)
 	}
-	e.loadState()
+	if e.userRun == nil {
+		e.loadState()
+	} else {
+		e.owned = map[int][]*big.Int{}
+	}
 	return nil
 }
 
@@ -345,6 +356,11 @@ func (e *Env) RunPhases(ctx context.Context, phases []Phase) (result error) {
 		if err := context.Cause(ctx); err != nil {
 			return errors.Join(failures, err)
 		}
+		if e.userRun != nil {
+			if err := e.checkUserRun(); err != nil {
+				return errors.Join(failures, err)
+			}
+		}
 		// Start from a quiet chain, as `zvm bench suite` does between steps:
 		// otherwise a phase measures what the last one left behind. Measured on
 		// chain 71 on 2026-09-17: saturation left 8,908 queued at 24x the fusion
@@ -358,6 +374,11 @@ func (e *Env) RunPhases(ctx context.Context, phases []Phase) (result error) {
 		rec.Before = e.snapshot(ctx)
 		if err := context.Cause(ctx); err != nil {
 			return errors.Join(failures, err)
+		}
+		if e.userRun != nil {
+			if err := e.checkUserRun(); err != nil {
+				return errors.Join(failures, err)
+			}
 		}
 
 		sctx, stop := context.WithCancel(ctx)
@@ -404,7 +425,7 @@ func (e *Env) save(rec *PhaseRecord) error {
 		return err
 	}
 	if e.userRun != nil {
-		return writeNewUserFile(filepath.Join(e.Out, rec.ID+".json"), append(raw, '\n'))
+		return e.writeUserOutput(rec.ID+".json", append(raw, '\n'))
 	}
 	return os.WriteFile(filepath.Join(e.Out, rec.ID+".json"), append(raw, '\n'), 0o644)
 }

@@ -11,8 +11,6 @@ import (
 	"math/big"
 	"math/rand/v2"
 	"net/http"
-	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -292,7 +290,7 @@ func (e *Env) runUsers(ctx context.Context, p *PhaseRecord, o UserOptions) (resu
 	if err := e.checkUserRun(); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(filepath.Join(e.Out, "records.jsonl"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	f, err := e.openUserOutput("records.jsonl")
 	if err != nil {
 		return err
 	}
@@ -305,7 +303,7 @@ func (e *Env) runUsers(ctx context.Context, p *PhaseRecord, o UserOptions) (resu
 		}
 	}()
 	p.set("users", meta)
-	if err := writeNewUserFile(filepath.Join(e.Out, "users.json"), raw); err != nil {
+	if err := e.writeUserOutput("users.json", raw); err != nil {
 		return fmt.Errorf("writing user metadata: %w", err)
 	}
 
