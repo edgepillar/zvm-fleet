@@ -255,7 +255,37 @@ write through that verified descriptor. Replaced or modified state is refused;
 unrelated evidence is preserved. A failed write may leave a partial owned state
 file requiring inspection. State updates do not establish atomic replacement,
 `fsync`, crash/power-loss recovery, cross-file commits or report-pair publication.
-Other benchmark-run writers and CLI report replacement remain separate work.
+Other benchmark-run and retained-stream-file writer boundaries remain separate work.
+
+`users-report` stages Markdown, summary JSON and a `users-report.json` receipt
+before replacing existing outputs. It rejects reserved input names, symlinks,
+raw-input aliases and shared output identities. New report files are private;
+replacement retains basic permission bits. An exclusive `users-report.lock`
+serializes cooperating publishers. No stale lock is automatically adopted.
+
+Each replacement uses an opened parent root and checked file identities/bytes.
+Previous report bytes are streamed to owned recovery files, without copying raw
+records. The receipt commits the two output hashes/byte counts only after both
+replacements have been observed. Its `published` state describes publication;
+the summary's partial-input and `runCompletion` evidence remains unchanged.
+Use `users-report -in <directory> -out <markdown> -verify` to check an existing
+pair without rebuilding it. The default Markdown path remains `<in>/USERS.md`.
+The receipt contains hashes and a random generation identifier, without paths.
+
+Validation or staging refusal preserves existing outputs. A publication failure
+rolls back only replacements still identified as this operation's files. If an
+identity, parent, claim or rollback is uncertain, the command reports `UNKNOWN`
+and retains its claim/recovery files for inspection. Observed unknown replacements
+are preserved; publication is not silently retried. Failed staging files may
+also remain for inspection. Success removes only checked owned temporary files.
+
+Two renames are not an atomic pair replacement. Readers requiring a checked pair
+must use the receipt verifier and refuse an existing publisher claim. Independent
+readers of the two legacy paths can observe an intermediate state. There is no
+`fsync`, crash/power-loss recovery, writer authentication or freshness proof for
+the source inputs. These controls are covered by normal and CLI package race
+tests. Identity checks are not an atomic compare-and-swap against noncooperating
+writers. Actual Windows/filesystem deployment remains unqualified.
 
 A randomly generated 128-bit `runId` accompanies user records, samples, profile
 metadata, user metadata and phase records, including the phase's user-metadata

@@ -43,3 +43,13 @@ jobs:
           GOMAXPROCS: "2"
           GOFLAGS: "-mod=readonly -p=1"
         run: go test -race -count=1 ./fleet ./internal/measurement
+
+      - name: Run user report publication race tests
+        timeout-minutes: 3
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOMAXPROCS: "2"
+          GOFLAGS: "-mod=readonly -p=1"
+        run: go test -race -count=1 ./cmd/zvm-fleet

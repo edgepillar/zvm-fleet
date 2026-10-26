@@ -171,23 +171,28 @@ func writeUsersReport(in, out string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(out, []byte(fleet.UsersMarkdown(s)), 0o644); err != nil {
-		return err
-	}
 	raw, err := json.MarshalIndent(s, "", " ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(in, "summary.json"), raw, 0o644)
+	return publishUsersReport(in, out, []byte(fleet.UsersMarkdown(s)), raw)
 }
 
 func benchUsersReport(args []string) error {
 	fs := flag.NewFlagSet("users-report", flag.ExitOnError)
 	in := fs.String("in", "bench/users-baseline", "directory of a user simulation")
 	out := fs.String("out", "", "markdown to write (default: <in>/USERS.md)")
+	verify := fs.Bool("verify", false, "verify the stored report pair and its receipt without rebuilding it")
 	fs.Parse(args)
 	if *out == "" {
 		*out = filepath.Join(*in, "USERS.md")
+	}
+	if *verify {
+		if err := verifyUsersReport(*in, *out); err != nil {
+			return err
+		}
+		fmt.Println("verified stored report pair", *out)
+		return nil
 	}
 	if err := writeUsersReport(*in, *out); err != nil {
 		return err
