@@ -288,6 +288,33 @@ func readUserJSONL(path string, optional bool, each func([]byte) error) (UserJSO
 	return evidence, nil
 }
 
+const userMetadataByteLimit int64 = 16 << 20
+const userMetadataMarkerByteLimit int64 = 1024
+const userMetadataTokenLimit = userJSONLTokenLimit
+
+func userMetadataLimit(source string) int64 {
+	if source == userRunFile {
+		return userMetadataMarkerByteLimit
+	}
+	return userMetadataByteLimit
+}
+
+// The extra byte detects growth beyond the selected budget without reading
+// the remainder. This bounds encoded input, not the complete decoded heap.
+func readUserMetadataBytes(reader io.Reader, limit int64) ([]byte, error) {
+	if limit < 0 || limit > userMetadataByteLimit {
+		return nil, errUserInput
+	}
+	raw, err := io.ReadAll(io.LimitReader(reader, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(raw)) > limit {
+		return nil, errUserInput
+	}
+	return raw, nil
+}
+
 func readUserMetadata(path string, out any) (UserInputFile, error) {
 	source := filepath.Base(path)
 	evidence := UserInputFile{Name: source, State: "missing"}
@@ -299,9 +326,15 @@ func readUserMetadata(path string, out any) (UserInputFile, error) {
 		return evidence, fmt.Errorf("%s: regular metadata file is unavailable", source)
 	}
 	defer file.Close()
-	raw, err := io.ReadAll(file)
-	if err != nil || !utf8.Valid(raw) || validateUserObject(raw, len(raw)+1) != nil || decodeMeasurementJSON(bytes.NewReader(raw), out) != nil {
-		return evidence, fmt.Errorf("%s: invalid metadata", source)
+	limit := userMetadataLimit(source)
+	if before.Size() < 0 || before.Size() > limit {
+		evidence.State = "refused"
+		return evidence, fmt.Errorf("%s: metadata exceeds input byte limit", source)
+	}
+	raw, err := readUserMetadataBytes(file, limit)
+	if err != nil || !utf8.Valid(raw) || validateUserObject(raw, userMetadataTokenLimit) != nil || decodeMeasurementJSON(bytes.NewReader(raw), out) != nil {
+		evidence.State = "refused"
+		return evidence, fmt.Errorf("%s: invalid or over-budget metadata", source)
 	}
 	if !stableUserInput(path, file, before, int64(len(raw))) {
 		return evidence, fmt.Errorf("%s: metadata changed while reading", source)

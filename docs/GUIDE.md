@@ -548,3 +548,26 @@ allocations, and do not replace semantic record/sample, cohort, clock or field
 availability policies. Full allocation/input bounds, all stream/consumer paths,
 real services, platform/durability and independent operator acceptance remain
 open. The counter/timing fuzz campaigns retain their separate finite scope.
+
+
+### Bounded report metadata input
+
+Report metadata is checked before caller decoding: `user-run.json` shares the
+producer's existing 1 KiB marker ceiling, and other metadata has a 16 MiB encoded
+file ceiling. All metadata shares the one-million-token budget; the existing
+128-container-level, unique-member and UTF-8 checks remain in place. An oversized
+selected regular file is refused before reading. The bounded stream reader also
+reads at most the selected budget plus one byte to detect growth. Refused input
+does not become observed/stable evidence or a successful report context, and
+resource refusal leaves the caller's decode target untouched.
+
+Exact marker/file/token boundaries, optional missing files, exact integer/zero
+decoding and stable-input hashes remain supported. Read refusals preserve the
+input file. Large byte fixtures are streamed once per group and reused by rename
+across context roles, avoiding a separate large file copy for each role.
+
+These are encoded-input and parser-work bounds. They do not establish a fixed
+whole-process heap bound, transactional caller updates for every failure, source
+authenticity, a cross-file snapshot, limits for every accumulated record/metadata
+selection or custom remarshal path, real services, platform/durability or operator
+acceptance. Existing JSONL, cohort, clock and report-pair rules remain separate.
