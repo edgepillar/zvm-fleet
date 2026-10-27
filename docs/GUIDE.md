@@ -525,3 +525,26 @@ adoption, Windows, disk-full/fsync/crash/power-loss recovery and independent
 operator acceptance remain unqualified. These checks cannot recover bytes already
 deleted or overwritten externally. Original raw input/run evidence and the
 separate checked report-pair verification contract remain unchanged.
+
+
+### JSONL producer and reader framing
+
+Before a new encoded row reaches the output buffer, the producer applies the
+existing reader's framing rules: one object, unique members, valid UTF-8, at most
+16 MiB encoded payload (excluding the emitted newline), 128 container levels and at
+most one million tokens. The byte check uses actual JSON output, including HTML
+escaping. Reader limits and encoded bytes remain unchanged; exact byte, depth and
+token boundaries still replay through the sample reader.
+
+A refused row cancels its owner, stops subsequent rows and is never written.
+Finalization still flushes earlier accepted buffered rows and retains the refusal.
+Record emission does not count the refused transaction as accepted output;
+sample emission preserves its earlier complete prefix. Large negative fixtures
+use digest-only discard sinks rather than another payload buffer or disk copy.
+
+These checks validate the encoded frame after standard JSON marshaling. They do
+not bound caller-owned values, custom marshaler work or temporary encoding
+allocations, and do not replace semantic record/sample, cohort, clock or field
+availability policies. Full allocation/input bounds, all stream/consumer paths,
+real services, platform/durability and independent operator acceptance remain
+open. The counter/timing fuzz campaigns retain their separate finite scope.

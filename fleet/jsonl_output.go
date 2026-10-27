@@ -62,6 +62,14 @@ func (o *jsonlOutput) append(value any, flush bool) error {
 	if err != nil {
 		return o.failLocked("JSONL encode", err)
 	}
+	// Match the reader's frame limits before any part of this row reaches
+	// the buffer. Standard marshaling above still owns its temporary memory.
+	if len(raw) > userJSONLLineLimit {
+		return o.failLocked("JSONL row", errors.New("encoded row exceeds the reader byte limit"))
+	}
+	if err := userJSONObject(raw); err != nil {
+		return o.failLocked("JSONL row structure", err)
+	}
 	if o.w == nil {
 		return o.failLocked("JSONL write", errors.New("writer unavailable"))
 	}
