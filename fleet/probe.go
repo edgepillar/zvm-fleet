@@ -244,7 +244,7 @@ func (e *Env) snapshot(ctx context.Context) *Snapshot {
 	var mu sync.Mutex
 	fail := func(what string, err error) {
 		mu.Lock()
-		s.Errors = append(s.Errors, what+": "+err.Error())
+		s.Errors = append(s.Errors, what+": "+measurementReportReason(err))
 		mu.Unlock()
 	}
 	var wg sync.WaitGroup
@@ -381,7 +381,7 @@ func (e *Env) sampleOnce(ctx context.Context) Sample {
 		var err error
 		s.Containers, err = e.dockerStatsResult(ctx)
 		if err != nil {
-			s.Errors = append(s.Errors, "docker stats: "+err.Error())
+			s.Errors = append(s.Errors, "docker stats: "+measurementReportReason(err))
 		}
 	}()
 	go func() {

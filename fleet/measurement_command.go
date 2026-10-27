@@ -64,11 +64,31 @@ func measurementCommand(parent context.Context, args ...string) ([]byte, error) 
 		failure = errors.Join(failure, errMeasurementStderrLimit)
 	}
 	if failure != nil {
-		diagnostic := strings.TrimSpace(string(stderr.data))
-		if diagnostic != "" {
-			return nil, fmt.Errorf("measurement command: %w; stderr: %s", failure, diagnostic)
-		}
-		return nil, fmt.Errorf("measurement command: %w", failure)
+		return nil, &measurementCommandError{cause: failure, diagnostic: strings.TrimSpace(string(stderr.data))}
 	}
 	return stdout.data, nil
+}
+
+// Direct callers can inspect the bounded diagnostic and original error chain.
+// Retained sample/snapshot summaries use a concise reason instead of stderr.
+type measurementCommandError struct {
+	cause      error
+	diagnostic string
+}
+
+func (e *measurementCommandError) Error() string {
+	if e.diagnostic != "" {
+		return fmt.Sprintf("measurement command: %v; stderr: %s", e.cause, e.diagnostic)
+	}
+	return fmt.Sprintf("measurement command: %v", e.cause)
+}
+
+func (e *measurementCommandError) Unwrap() error { return e.cause }
+
+func measurementReportReason(err error) string {
+	var failure *measurementCommandError
+	if errors.As(err, &failure) {
+		return "command unavailable"
+	}
+	return err.Error()
 }

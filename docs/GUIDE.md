@@ -494,3 +494,7 @@ sandbox, or prove that a canceled Docker client stops an operation inside a
 daemon/container. Remote operation lifetime, whole-process-tree control, Windows,
 operational restart/healing commands, complete probe/stream/retained-file coverage,
 durability/freshness and independent operator acceptance remain separate gates.
+
+Retained sample/snapshot error summaries stay concise and do not embed command
+stderr. Direct errors keep a separate bounded diagnostic and inspectable
+cause chain; a retained error string is not that richer error object.

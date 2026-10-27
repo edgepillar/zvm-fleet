@@ -2,7 +2,11 @@ package fleet
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"strings"
@@ -90,5 +94,34 @@ func TestMeasurementDirectoryAlreadyCanceledKeepsErrorAndNoOutput(t *testing.T) 
 	}
 	if _, err := os.Stat(calls); !os.IsNotExist(err) {
 		t.Fatal("canceled directory command was launched")
+	}
+}
+
+func TestMeasurementCommandSampleKeepsConcisePrivateDiagnosticBoundary(t *testing.T) {
+	captureTestDocker(t, "stats", resourceDockerRow("synthetic-node", nil), "synthetic-sensitive-command-output", "", 23)
+	server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/blocks" {
+			io.WriteString(out, "[]")
+		} else {
+			io.WriteString(out, "{}")
+		}
+	}))
+	defer server.Close()
+	e := captureTestEnvironment()
+	e.API, e.http = server.URL, server.Client()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	sample := e.sampleOnce(ctx)
+	if len(sample.Errors) != 1 || sample.Errors[0] != "docker stats: command unavailable" {
+		t.Fatal("sample replaced its concise command failure summary", sample.Errors)
+	}
+	wire, err := json.Marshal(sample)
+	if err != nil || strings.Contains(string(wire), "synthetic-sensitive-command-output") {
+		t.Fatal("sample retained raw command diagnostics", err)
+	}
+	_, direct := e.dockerStatsResult(ctx)
+	var exit *exec.ExitError
+	if !errors.As(direct, &exit) || exit.ExitCode() != 23 || !strings.Contains(direct.Error(), "synthetic-sensitive-command-output") {
+		t.Fatal("direct error lost its separate bounded diagnostic or process status", direct)
 	}
 }
