@@ -178,7 +178,10 @@ func (e *Env) probeObserved(ctx context.Context, container string, media bool) (
 	if err := json.Unmarshal(raw, rep); err != nil {
 		return nil, false, false, err
 	}
-	file, pages := storageAvailability(raw, rep)
+	file, pages, err := storageAvailability(raw, rep)
+	if err != nil {
+		return nil, false, false, fmt.Errorf("storage probe fields: %w", err)
+	}
 	return rep, file, pages, nil
 }
 

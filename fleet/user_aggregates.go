@@ -90,22 +90,33 @@ func canonicalAggregateFields(fields map[string]json.RawMessage, names ...string
 	return nil
 }
 
-func storageAvailability(raw []byte, report *bench.StorageReport) (file, pages bool) {
+func storageAvailability(raw []byte, report *bench.StorageReport) (file, pages bool, failure error) {
 	if report == nil {
-		return false, false
+		return false, false, nil
+	}
+	// Typed decoding folds field names and accepts duplicate members. Presence
+	// and availability must refer to the same unambiguous canonical fields.
+	if err := validateUserObject(raw, len(raw)+1); err != nil {
+		return false, false, err
 	}
 	var fields map[string]json.RawMessage
-	if json.Unmarshal(raw, &fields) != nil || fields == nil {
-		return false, false
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return false, false, err
+	}
+	if err := canonicalAggregateFields(fields, "fileBytes", "pages", "freePages", "pageSize"); err != nil {
+		return false, false, err
 	}
 	file = presentScalar(fields, "fileBytes") && report.FileBytes >= 0
 	pages = presentScalar(fields, "pages") && presentScalar(fields, "freePages") && presentScalar(fields, "pageSize") && sqliteValue(report) != nil
-	return file, pages
+	return file, pages, nil
 }
 
 type snapshotAggregateJSON Snapshot
 
 func (s *Snapshot) UnmarshalJSON(raw []byte) error {
+	if err := validateUserObject(raw, len(raw)+1); err != nil {
+		return err
+	}
 	var value snapshotAggregateJSON
 	if err := decodeMeasurementJSON(bytes.NewReader(raw), &value); err != nil {
 		return err
@@ -114,11 +125,17 @@ func (s *Snapshot) UnmarshalJSON(raw []byte) error {
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return err
 	}
-	if err := canonicalAggregateFields(fields, "indexFileBytesKnown", "indexPagesKnown", "followerPagesKnown"); err != nil {
+	if err := canonicalAggregateFields(fields, "index", "followerDb", "indexFileBytesKnown", "indexPagesKnown", "followerPagesKnown"); err != nil {
 		return err
 	}
-	file, pages := storageAvailability(fields["index"], value.Index)
-	_, follower := storageAvailability(fields["followerDb"], value.FollowerDB)
+	file, pages, err := storageAvailability(fields["index"], value.Index)
+	if err != nil {
+		return fmt.Errorf("index observation: %w", err)
+	}
+	_, follower, err := storageAvailability(fields["followerDb"], value.FollowerDB)
+	if err != nil {
+		return fmt.Errorf("follower observation: %w", err)
+	}
 	// A legacy zero file size cannot distinguish an absent scalar from a
 	// successful zero capture. New capture/replay flags preserve that distinction.
 	if _, declared := fields["indexFileBytesKnown"]; declared {

@@ -451,3 +451,22 @@ before the failure propagates. Slice reproducers are capped at 576/432 bytes;
 the clock reproducer holds four little-endian uint64 words (after, before,
 seconds, rank), followed by its known flag. This retains a reproducer without
 per-input files or another diagnostic artifact upload.
+
+## Unambiguous storage observations
+
+Live storage-probe capture and snapshot replay require canonical `fileBytes`,
+`pages`, `freePages` and `pageSize` fields. Duplicate object members, including
+escaped duplicates and duplicates inside nested storage metadata, are refused.
+Snapshot envelopes also refuse duplicate members and case aliases for the index,
+follower and availability declarations. JSON structure uses the existing retained
+metadata depth rule. A refused live probe supplies no storage observation and
+records its error; it must not become a measured zero or a partially trusted
+replacement for ambiguous data.
+
+Canonical measured zero, absent/null scalars, explicitly unavailable values,
+legacy unknown file zero, independent file/page availability and optional index
+or follower data retain their prior meaning. Unique unknown extension fields
+remain allowed. Synthetic POSIX-command and JSON regression fixtures exercise
+these boundaries without real Docker, SQLite, project RPC, wallets or chain
+operations. Output-size/time bounds, real probe integration, full run completeness,
+provenance, durability and other platform/operator requirements remain separate.
