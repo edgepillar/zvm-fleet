@@ -470,3 +470,27 @@ remain allowed. Synthetic POSIX-command and JSON regression fixtures exercise
 these boundaries without real Docker, SQLite, project RPC, wallets or chain
 operations. Output-size/time bounds, real probe integration, full run completeness,
 provenance, durability and other platform/operator requirements remain separate.
+
+
+### Bounded measurement subprocess capture
+
+Container discovery, statistics, directory/storage observation and the two probe
+installation commands share bounded capture: at most 1 MiB stdout and 8 KiB
+stderr per direct Docker command, a 30-second command deadline (or the earlier
+caller deadline), and 250 ms for inherited output pipes after command exit or
+cancellation. Exact byte boundaries remain usable; either output overflow stops
+the direct command and invalidates all of its stdout. The retained stderr prefix
+is bounded. Exit status, caller cancellation/custom cause, deadline and pipe-wait
+errors remain inspectable through wrapping. A limit stop does not claim that the
+caller canceled the operation.
+
+Directory capture keeps complete observations from other selected containers
+when one command fails. Snapshot errors retain that failure; the legacy map-only
+directory helper still discards its returned error for existing callers.
+
+The controls invoke finite synthetic POSIX commands. They do not run a Docker
+daemon, database, remote container, wallet or chain, establish a general process
+sandbox, or prove that a canceled Docker client stops an operation inside a
+daemon/container. Remote operation lifetime, whole-process-tree control, Windows,
+operational restart/healing commands, complete probe/stream/retained-file coverage,
+durability/freshness and independent operator acceptance remain separate gates.

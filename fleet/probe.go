@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -25,7 +25,7 @@ type engineDir struct {
 }
 
 func runningContainers(ctx context.Context) (map[string]bool, error) {
-	out, err := exec.CommandContext(ctx, "docker", "ps", "--format", "{{.Names}}").Output()
+	out, err := measurementCommand(ctx, "ps", "--format", "{{.Names}}")
 	if err != nil {
 		return nil, err
 	}
@@ -44,11 +44,11 @@ func (e *Env) installProbe(ctx context.Context) error {
 		if c == "" || !e.running[c] {
 			continue
 		}
-		if out, err := exec.CommandContext(ctx, "docker", "cp", e.Probe, c+":/tmp/zvm-probe").CombinedOutput(); err != nil {
-			return fmt.Errorf("docker cp to %s: %v: %s", c, err, out)
+		if _, err := measurementCommand(ctx, "cp", e.Probe, c+":/tmp/zvm-probe"); err != nil {
+			return fmt.Errorf("docker cp to %s: %w", c, err)
 		}
-		if out, err := exec.CommandContext(ctx, "docker", "exec", c, "chmod", "+x", "/tmp/zvm-probe").CombinedOutput(); err != nil {
-			return fmt.Errorf("chmod in %s: %v: %s", c, err, out)
+		if _, err := measurementCommand(ctx, "exec", c, "chmod", "+x", "/tmp/zvm-probe"); err != nil {
+			return fmt.Errorf("chmod in %s: %w", c, err)
 		}
 	}
 	return nil
@@ -82,9 +82,9 @@ func (e *Env) dockerStatsResult(ctx context.Context) (map[string]ContainerStat, 
 		return nil, nil
 	}
 	args := append([]string{"stats", "--no-stream", "--format", "{{json .}}"}, names...)
-	out, err := exec.CommandContext(ctx, "docker", args...).Output()
+	out, err := measurementCommand(ctx, args...)
 	if err != nil {
-		return nil, fmt.Errorf("command unavailable")
+		return nil, fmt.Errorf("command unavailable: %w", err)
 	}
 	stats := dockerRows(out, allowed)
 	if stats == nil {
@@ -110,7 +110,13 @@ type DirSize struct {
 }
 
 func (e *Env) dirSizes(ctx context.Context, only ...string) map[string]DirSize {
+	out, _ := e.dirSizesResult(ctx, only...)
+	return out
+}
+
+func (e *Env) dirSizesResult(ctx context.Context, only ...string) (map[string]DirSize, error) {
 	out := map[string]DirSize{}
+	var failures []error
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	for _, d := range e.Names.measuredDirs() {
@@ -127,8 +133,11 @@ func (e *Env) dirSizes(ctx context.Context, only ...string) map[string]DirSize {
 			for _, p := range d.paths {
 				fmt.Fprintf(&script, "echo %s $(du -s -b %s 2>/dev/null | cut -f1) $(du -s -k %s 2>/dev/null | cut -f1);", p, p, p)
 			}
-			raw, err := exec.CommandContext(ctx, "docker", "exec", d.container, "sh", "-c", script.String()).Output()
+			raw, err := measurementCommand(ctx, "exec", d.container, "sh", "-c", script.String())
 			if err != nil {
+				mu.Lock()
+				failures = append(failures, fmt.Errorf("directory measurements for %s: %w", d.container, err))
+				mu.Unlock()
 				return
 			}
 			for path, size := range directoryRows(raw, d.paths) {
@@ -139,7 +148,7 @@ func (e *Env) dirSizes(ctx context.Context, only ...string) map[string]DirSize {
 		}()
 	}
 	wg.Wait()
-	return out
+	return out, errors.Join(failures...)
 }
 
 func contains(list []string, s string) bool {
@@ -164,12 +173,9 @@ func (e *Env) probeObserved(ctx context.Context, container string, media bool) (
 	if media {
 		args = append(args, "-media", "/data/media")
 	}
-	var stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	cmd.Stderr = &stderr
-	raw, err := cmd.Output()
+	raw, err := measurementCommand(ctx, args...)
 	if err != nil {
-		return nil, false, false, fmt.Errorf("%v: %s", err, strings.TrimSpace(stderr.String()))
+		return nil, false, false, fmt.Errorf("storage probe: %w", err)
 	}
 	if !bytes.HasPrefix(bytes.TrimSpace(raw), []byte("{")) {
 		return nil, false, false, fmt.Errorf("storage probe must return an object")
@@ -251,7 +257,14 @@ func (e *Env) snapshot(ctx context.Context) *Snapshot {
 			fail("containers", err)
 		}
 	}()
-	go func() { defer wg.Done(); s.Dirs = e.dirSizes(ctx) }()
+	go func() {
+		defer wg.Done()
+		var err error
+		s.Dirs, err = e.dirSizesResult(ctx)
+		if err != nil {
+			fail("directories", err)
+		}
+	}()
 	go func() {
 		defer wg.Done()
 		r, file, pages, err := e.probeObserved(ctx, e.Names.Node, true)
