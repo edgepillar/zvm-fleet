@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 func userOutputName(name string) bool {
@@ -70,20 +71,94 @@ func (e *Env) checkUserRoot(r *os.Root) error {
 
 type userOutputFile struct {
 	*os.File
-	root *os.Root
-	env  *Env
+	root    *os.Root
+	env     *Env
+	name    string
+	info    os.FileInfo
+	mu      sync.Mutex
+	failure error
+	closed  bool
+}
+
+// These are observed identity/metadata/offset checks, not a filesystem snapshot
+// or authentication against a noncooperating writer restoring old metadata.
+func (f *userOutputFile) check() error {
+	if err := f.env.checkUserRoot(f.root); err != nil {
+		return err
+	}
+	opened, statErr := f.File.Stat()
+	current, pathErr := f.root.Lstat(f.name)
+	if statErr != nil || pathErr != nil {
+		return errors.Join(errors.New("claimed user output file is unavailable"), statErr, pathErr)
+	}
+	if !sameUserOutput(f.info, opened) || !sameUserOutput(f.info, current) ||
+		f.info.Mode() != opened.Mode() || f.info.Mode() != current.Mode() {
+		return errors.New("claimed user output file changed")
+	}
+	offset, err := f.File.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return errors.Join(errors.New("claimed user output offset unavailable"), err)
+	}
+	if offset != f.info.Size() {
+		return errors.New("claimed user output append offset changed")
+	}
+	return nil
+}
+
+func (f *userOutputFile) afterWrite(before os.FileInfo, count int) (os.FileInfo, error) {
+	after, statErr := f.File.Stat()
+	current, pathErr := f.root.Lstat(f.name)
+	offset, offsetErr := f.File.Seek(0, io.SeekCurrent)
+	if statErr != nil || pathErr != nil || offsetErr != nil {
+		return nil, errors.Join(errors.New("claimed user output file unavailable after writing"), statErr, pathErr, offsetErr)
+	}
+	if !os.SameFile(before, after) || !sameUserOutput(after, current) || before.Mode() != after.Mode() ||
+		after.Mode() != current.Mode() || after.Size()-before.Size() != int64(count) || offset != after.Size() {
+		return nil, errors.New("claimed user output file changed during writing")
+	}
+	if err := f.env.checkUserRoot(f.root); err != nil {
+		return nil, err
+	}
+	return after, nil
 }
 
 func (f *userOutputFile) Write(raw []byte) (int, error) {
-	if err := f.env.checkUserRoot(f.root); err != nil {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failure != nil {
+		return 0, f.failure
+	}
+	if f.closed {
+		return 0, io.ErrClosedPipe
+	}
+	if err := f.check(); err != nil {
+		f.failure = err
 		return 0, err
 	}
-	n, err := f.File.Write(raw)
-	return n, errors.Join(err, f.env.checkUserRoot(f.root))
+	before := f.info
+	n, writeErr := f.File.Write(raw)
+	if writeErr == nil && n != len(raw) {
+		writeErr = io.ErrShortWrite
+	}
+	after, proofErr := f.afterWrite(before, n)
+	if proofErr == nil {
+		f.info = after
+	}
+	f.failure = errors.Join(writeErr, proofErr)
+	return n, f.failure
 }
 
 func (f *userOutputFile) Close() error {
-	return errors.Join(f.env.checkUserRoot(f.root), f.File.Close(), f.root.Close())
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.closed {
+		return f.failure
+	}
+	checkErr := f.check()
+	closeErr, rootErr := f.File.Close(), f.root.Close()
+	f.closed = true
+	f.failure = errors.Join(f.failure, checkErr, closeErr, rootErr)
+	return f.failure
 }
 
 func (e *Env) openUserOutput(name string) (io.WriteCloser, error) {
@@ -102,7 +177,15 @@ func (e *Env) openUserOutput(name string) (io.WriteCloser, error) {
 		// Preserve the new file for inspection, including an empty file.
 		return nil, errors.Join(err, f.Close(), r.Close())
 	}
-	return &userOutputFile{File: f, root: r, env: e}, nil
+	info, statErr := f.Stat()
+	if statErr != nil || !info.Mode().IsRegular() || info.Size() != 0 {
+		return nil, errors.Join(errors.New("new claimed user output changed"), statErr, f.Close(), r.Close())
+	}
+	output := &userOutputFile{File: f, root: r, env: e, name: name, info: info}
+	if err := output.check(); err != nil {
+		return nil, errors.Join(err, f.Close(), r.Close())
+	}
+	return output, nil
 }
 
 func writeUserBytes(f io.WriteCloser, raw []byte) error {

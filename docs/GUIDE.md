@@ -498,3 +498,30 @@ durability/freshness and independent operator acceptance remain separate gates.
 Retained sample/snapshot error summaries stay concise and do not embed command
 stderr. Direct errors keep a separate bounded diagnostic and inspectable
 cause chain; a retained error string is not that richer error object.
+
+
+### Claimed output file binding
+
+Opened claimed output files bind the visible local filename to the created
+regular file and its accepted append state. Before each write or close, the
+writer checks the opened directory/marker, file identity, type, size, modification
+time, mode and current append offset. After a write it checks the same filename,
+the exact accepted byte delta and offset, and the run claim again. An observed
+replacement, missing name, metadata or offset change is a sticky refusal; later
+writes do not resume merely because the old name is restored. Close retains the
+first refusal, closes both owned descriptors and is idempotent.
+
+The record buffer and sample stream propagate these file refusals to their owner.
+Static refusal controls leave observed retained and replacement files untouched
+when the change is detected before writing. Small synthetic filesystem controls
+exercise direct write/close and buffered record/sample paths,
+plus clean and concurrent appends. Checks use constant-size metadata and the
+existing bounded run marker; they do not reread the whole accumulated stream.
+
+This is observed file binding, not content authentication, a namespace transaction
+or a filesystem snapshot. Same-size content edits with restored metadata, unknown
+hard-link aliases, noncooperating mutations between checks, full writer/consumer
+adoption, Windows, disk-full/fsync/crash/power-loss recovery and independent
+operator acceptance remain unqualified. These checks cannot recover bytes already
+deleted or overwritten externally. Original raw input/run evidence and the
+separate checked report-pair verification contract remain unchanged.
