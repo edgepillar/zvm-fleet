@@ -11,6 +11,7 @@ permissions:
 jobs:
   go:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,6 +34,18 @@ jobs:
           GOMAXPROCS: "2"
           GOFLAGS: "-mod=readonly -p=1"
         run: go test -count=1 ./internal/measurement -run '^$' -fuzz '^FuzzMeasurementCounter$' -fuzztime=5s -parallel=1
+
+      # Compile instrumentation outside each campaign's wall-clock budget.
+      # Go's build cache is reused; no test binary is exported or uploaded.
+      - name: Build Fleet fuzz instrumentation
+        timeout-minutes: 6
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOMAXPROCS: "2"
+          GOFLAGS: "-mod=readonly -p=1"
+        run: go test -c -o /dev/null ./fleet -fuzz '^FuzzUserTimingExactStatistics$'
 
       - name: Fuzz exact user timing statistics
         timeout-minutes: 3
