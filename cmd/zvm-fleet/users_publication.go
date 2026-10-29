@@ -312,21 +312,14 @@ func (p *userReportPublication) receipt() (*userReportReceipt, error) {
 	if err != nil {
 		return nil, err
 	}
-	var receipt userReportReceipt
-	if err := json.Unmarshal(raw, &receipt); err != nil {
-		return nil, errors.New("invalid user report receipt")
-	}
-	canonical, err := json.MarshalIndent(receipt, "", "  ")
-	if err != nil || !bytes.Equal(raw, append(canonical, '\n')) || receipt.Schema != 1 || receipt.State != "published" || len(receipt.Generation) != 32 {
-		return nil, errors.New("invalid or noncanonical user report receipt")
-	}
-	if id, err := hex.DecodeString(receipt.Generation); err != nil || len(id) != 16 || strings.ToLower(receipt.Generation) != receipt.Generation {
-		return nil, errors.New("invalid user report generation")
+	receipt, err := decodeUserReportReceipt(raw)
+	if err != nil {
+		return nil, err
 	}
 	if p.targets[0].before == nil || p.targets[1].before == nil || receipt.Markdown != p.targets[0].beforeDigest || receipt.Summary != p.targets[1].beforeDigest {
 		return nil, errors.New("user report pair does not match its receipt")
 	}
-	return &receipt, nil
+	return receipt, nil
 }
 
 func (p *userReportPublication) claimCheck() error {

@@ -665,3 +665,40 @@ actual nonroot process state are checked; the helper refuses an owner mismatch.
 The retained success record keeps only the nonroot observation, without exposing
 host usernames or numeric owner values. Installation failures use a fixed
 allowlist of fixture reason codes rather than copying raw diagnostics.
+
+### Consume a checked stored user report
+
+Use the report command itself to consume the bytes that passed the receipt
+check, rather than verifying paths and reopening them with another process:
+
+```sh
+zvm-fleet users-report -in bench/users-baseline -read summary
+zvm-fleet users-report -in bench/users-baseline -read markdown
+```
+
+`-read` implies stored-pair verification and does not rebuild from later raw
+inputs. It emits only the selected member's exact original bytes, without an
+acknowledgement line or an added newline. A custom Markdown location still uses
+`-out`. Both members and the canonical published receipt must match; an observed
+publisher claim, changed parent/file identity, symlink, shared member identity,
+incomplete member or invalid receipt refuses output. An invalid/empty selection
+or extra argument cannot fall through to rebuilding. Existing `-verify` remains
+a verification-only command; its acknowledgement is not a snapshot for a later
+independent path read.
+
+The reader retains at most 16 MiB Markdown, 32 MiB summary and 4096 receipt
+bytes, rejecting larger declared or actual members. These are payload limits,
+not a fixed process-heap or kernel-I/O deadline. Unix opens are nonblocking so a
+FIFO substituted before open is refused without waiting for a writer. The new
+consumption mode refuses unsupported non-Unix platforms; existing generation
+and verification remain available there. Native platform qualification is
+reported separately.
+
+Captured bytes remain tied to the checked generation even if a later publisher
+replaces the paths before output. Check the command's exit status, including
+in pipelines: output failure can leave a partial stdout stream, which is not
+transactional. Never redirect onto an input/member path: the shell may truncate
+it before this command starts. Receipt equality does not authenticate a writer,
+validate arbitrary report semantics, prove raw-input freshness, synchronize
+noncooperating writers, or establish completed/real-chain benchmark results.
+External scripts and readers must adopt checked consumption independently.

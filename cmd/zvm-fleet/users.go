@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -179,24 +180,45 @@ func writeUsersReport(in, out string) error {
 }
 
 func benchUsersReport(args []string) error {
+	return benchUsersReportTo(args, os.Stdout)
+}
+
+func benchUsersReportTo(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("users-report", flag.ExitOnError)
 	in := fs.String("in", "bench/users-baseline", "directory of a user simulation")
 	out := fs.String("out", "", "markdown to write (default: <in>/USERS.md)")
 	verify := fs.Bool("verify", false, "verify the stored report pair and its receipt without rebuilding it")
+	read := fs.String("read", "", "emit the exact checked stored markdown or summary bytes without rebuilding")
 	fs.Parse(args)
 	if *out == "" {
 		*out = filepath.Join(*in, "USERS.md")
+	}
+	readSelected := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "read" {
+			readSelected = true
+		}
+	})
+	if readSelected {
+		if (*read != "markdown" && *read != "summary") || fs.NArg() != 0 {
+			return errors.New("-read must select markdown or summary without positional arguments")
+		}
+		report, err := readUsersReport(*in, *out)
+		if err != nil {
+			return err
+		}
+		return report.write(stdout, *read)
 	}
 	if *verify {
 		if err := verifyUsersReport(*in, *out); err != nil {
 			return err
 		}
-		fmt.Println("verified stored report pair", *out)
-		return nil
+		_, err := fmt.Fprintln(stdout, "verified stored report pair", *out)
+		return err
 	}
 	if err := writeUsersReport(*in, *out); err != nil {
 		return err
 	}
-	fmt.Println("wrote", *out)
-	return nil
+	_, err := fmt.Fprintln(stdout, "wrote", *out)
+	return err
 }
