@@ -112,7 +112,7 @@ func TestMeasurementCommandSampleKeepsConcisePrivateDiagnosticBoundary(t *testin
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	sample := e.sampleOnce(ctx)
-	if len(sample.Errors) != 1 || sample.Errors[0] != "docker stats: command unavailable" {
+	if len(sample.Errors) != 1 || sample.Errors[0] != "docker stats: command unavailable (exit-23)" {
 		t.Fatal("sample replaced its concise command failure summary", sample.Errors)
 	}
 	wire, err := json.Marshal(sample)

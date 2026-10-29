@@ -131,7 +131,7 @@ func TestUserJSONLDockerDiagnosticsDistinguishUnselectedAndUnavailable(t *testin
 	}{
 		{"none-selected", "{", "", false, false},
 		{"garbled", "{", "malformed output", true, false},
-		{"command-failed", "", "command unavailable", true, true},
+		{"command-failed", "", "command unavailable (exit-1)", true, true},
 		{"missing-observation", "", "incomplete observations", true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

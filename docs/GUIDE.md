@@ -571,3 +571,27 @@ whole-process heap bound, transactional caller updates for every failure, source
 authenticity, a cross-file snapshot, limits for every accumulated record/metadata
 selection or custom remarshal path, real services, platform/durability or operator
 acceptance. Existing JSONL, cohort, clock and report-pair rules remain separate.
+
+
+### Command failure reasons and probe installation
+
+Retained command errors keep the `command unavailable` prefix and append sorted,
+stable cause tokens. The tokens distinguish `caller-canceled`,
+`caller-deadline`, `operation-timeout`, `stdout-limit`, `stderr-limit`,
+`not-found`, `permission-denied`, `start-failed`, `pipe-wait-timeout`,
+`exit-N` and `signaled`. Joined failures retain the union of observed causes;
+`deadline` and `canceled` cover older errors without caller/policy metadata.
+`other` means no more specific supported cause was available, and `cause-limit`
+means the bounded error-tree walk could not inspect the complete chain.
+A nonzero exit does not identify a daemon outage by itself. Raw stderr,
+arguments and custom cancellation messages remain outside retained reports;
+direct returned errors keep their bounded diagnostics and original error chain.
+
+Measurement and discovery commands retain their 30-second operation limit.
+Installing the probe uses a separate two-minute limit for each `docker cp`;
+the subsequent chmod keeps the 30-second limit. Every operation still honors
+an earlier caller deadline or cancellation. The stdout limit remains 1 MiB,
+the stderr limit 8 KiB and the inherited-pipe wait 250 ms. Exceeding either
+stream limit fails the observation and discards all stdout even when the
+direct command exits successfully. These are bounded command policies, not
+proof of remote daemon cancellation or tested large-binary copy performance.

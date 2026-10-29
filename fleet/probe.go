@@ -44,7 +44,7 @@ func (e *Env) installProbe(ctx context.Context) error {
 		if c == "" || !e.running[c] {
 			continue
 		}
-		if _, err := measurementCommand(ctx, "cp", e.Probe, c+":/tmp/zvm-probe"); err != nil {
+		if _, err := measurementCommandWithTimeout(ctx, measurementProbeCopyTimeout, "cp", e.Probe, c+":/tmp/zvm-probe"); err != nil {
 			return fmt.Errorf("docker cp to %s: %w", c, err)
 		}
 		if _, err := measurementCommand(ctx, "exec", c, "chmod", "+x", "/tmp/zvm-probe"); err != nil {
