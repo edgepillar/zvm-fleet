@@ -595,3 +595,47 @@ the stderr limit 8 KiB and the inherited-pipe wait 250 ms. Exceeding either
 stream limit fails the observation and discards all stdout even when the
 direct command exits successfully. These are bounded command policies, not
 proof of remote daemon cancellation or tested large-binary copy performance.
+
+### Owned Docker and SQLite probe fixture
+
+The dedicated Linux/amd64 CI lane builds the complete Node command from the
+Fleet gitlink, with static, stripped, path-trimmed Go settings. It transfers that
+actual binary through `installProbe`, initially without executable bits, into
+two owned containers. The containers use a scratch image built from the small
+repository fixture helper, without pulling a base image or opening network
+access. The helper provides only its idle process, the probe chmod operation,
+bounded file digests and fixed kernel constraint observations.
+
+Each container has a read-only root, no capabilities, no new privileges, no
+network, one CPU, 384 MiB memory without swap and 64 PIDs. The test checks the
+actual cgroup v2, capability and root-mount observations. Probe and data paths
+are bounded tmpfs mounts. The helper is at most 8 MiB; the compiled probe is at
+most 96 MiB and each synthetic database is at most 1 MiB. The image is never
+published and the binary is not downloaded as a qualification artifact.
+
+The real `bench storage` command captures distinct primary and follower SQLite
+files. Independent fixture denominators cover file bytes, page size/count,
+freelist, table rows and synthetic heads; primary media includes an empty file.
+Database hashes must remain unchanged after read-only probing. Cancellation
+before dispatch, stale/stopped discovery, absence and corrupt SQLite must not
+invent observations. Cleanup checks the exact owned IDs and labels, and confirms
+that no container or image with the fixture token remains. Uncertain ownership
+or cleanup fails the lane.
+
+The build and Docker steps each have four-minute CI bounds; the Go package has
+a three-minute bound, the owned scenario has two minutes plus a separate
+20-second cleanup allowance, and the complete job retains fifteen minutes.
+The default normal, four fuzz and two race steps remain. The Docker test has an
+explicit build tag and hosted ownership opt-in; missing prerequisites fail the
+selected lane. This qualifies the declared fixture only. Slow disks/large-copy
+deadlines, remote daemon lifetime, Windows, full services, real chain authority,
+whole-system benchmarks, durability and independent operational acceptance remain
+open. No performance improvement or full V04 acceptance is inferred.
+
+The selected fixture requires local Docker BuildKit and cgroup v2. The isolated
+Docker configuration selects the local Unix socket; no external builder,
+registry credentials or base-image pull is used.
+
+The retained success record includes the actual typed probe reports, transferred
+binary and database digests, and both containers' observed kernel limits,
+alongside the independently constructed SQLite/media denominators.

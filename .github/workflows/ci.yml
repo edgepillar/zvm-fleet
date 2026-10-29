@@ -25,6 +25,35 @@ jobs:
       - run: go vet ./...
       - run: go test -json -count=1 ./...
 
+      - name: Build owned Docker probe fixtures
+        timeout-minutes: 4
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOMAXPROCS: "2"
+          GOFLAGS: "-mod=readonly -p=1"
+        run: |
+          test "$(git rev-parse HEAD:zvm-node)" = ae90b945b0ea95887c31cfb2f19e0b88504186d8
+          test "$(git -C zvm-node rev-parse HEAD)" = ae90b945b0ea95887c31cfb2f19e0b88504186d8
+          fleet_probe_fixture="$RUNNER_TEMP/fleet-probe-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -m 700 "$fleet_probe_fixture"
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "$fleet_probe_fixture/zvm-probe" github.com/Zenoglyphs-VM/zvm-node/cmd/zvm-node
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "$fleet_probe_fixture/helper" ./testdata/probe-fixture
+          chmod 0644 "$fleet_probe_fixture/zvm-probe"
+          chmod 0755 "$fleet_probe_fixture/helper"
+
+      - name: Run owned Docker SQLite probe
+        timeout-minutes: 4
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOMAXPROCS: "2"
+          GOFLAGS: "-mod=readonly -p=1"
+          FLEET_OWNED_DOCKER: "1"
+        run: go test -json -count=1 -timeout=3m -tags=fleetdocker ./fleet -run '^TestProbeOwnedDockerSQLite$'
+
       - name: Fuzz exact measurement counters
         timeout-minutes: 3
         env:
