@@ -33,7 +33,15 @@ type probeFixtureDigest struct {
 	Mode   uint32 `json:"mode"`
 }
 
+type probeFixtureMount struct {
+	Bytes                        int64
+	Tmpfs, NoExec, NoSUID, NoDev bool
+}
+
+type probeFixtureVolume struct{ name, created string }
+
 type probeFixtureKernel struct {
+	Mounts                               map[string]probeFixtureMount
 	Limits                               map[string]int64
 	Effective, Bounding, NoNewPrivileges string
 	RootReadOnly                         bool
@@ -41,6 +49,7 @@ type probeFixtureKernel struct {
 
 type probeFixtureContainer struct{ id, name string }
 type probeFixtureLab struct {
+	volumes          []probeFixtureVolume
 	kernel           []probeFixtureKernel
 	t                *testing.T
 	ctx              context.Context
@@ -82,7 +91,11 @@ func (l *probeFixtureLab) require(args ...string) []byte {
 }
 
 func (l *probeFixtureLab) labels(ctx context.Context, kind, id string) (map[string]string, error) {
-	raw, err := l.call(ctx, kind, "inspect", "--format", "{{json .Config.Labels}}", id)
+	format := "{{json .Config.Labels}}"
+	if kind == "volume" {
+		format = "{{json .Labels}}"
+	}
+	raw, err := l.call(ctx, kind, "inspect", "--format", format, id)
 	if err != nil {
 		return nil, err
 	}
@@ -121,6 +134,33 @@ func (l *probeFixtureLab) cleanup() (map[string]any, error) {
 	if len(strings.Fields(string(remaining))) != 0 {
 		result = errors.Join(result, errors.New("owned containers remain"))
 	}
+	removedVolumes := 0
+	for _, volume := range l.volumes {
+		if volume.created == "" {
+			result = errors.Join(result, errors.New("owned volume creation is unknown"))
+			continue
+		}
+		if _, err := l.labels(ctx, "volume", volume.name); err != nil {
+			result = errors.Join(result, err)
+			continue
+		}
+		raw, err := l.call(ctx, "volume", "inspect", "--format", "{{.CreatedAt}}", volume.name)
+		if err != nil || strings.TrimSpace(string(raw)) != volume.created {
+			result = errors.Join(result, errors.New("owned volume identity changed"))
+			continue
+		}
+		raw, err = l.call(ctx, "volume", "rm", volume.name)
+		if err != nil || strings.TrimSpace(string(raw)) != volume.name {
+			result = errors.Join(result, errors.New("owned volume removal is unknown"))
+			continue
+		}
+		removedVolumes++
+	}
+	volumes, err := l.call(ctx, "volume", "ls", "--quiet", "--filter", "label="+probeFixtureLabel+"="+l.token)
+	result = errors.Join(result, err)
+	if len(strings.Fields(string(volumes))) != 0 {
+		result = errors.Join(result, errors.New("owned volumes remain"))
+	}
 	imageRemoved := false
 	if l.image != "" && result == nil {
 		if _, err := l.labels(ctx, "image", l.image); err != nil {
@@ -138,16 +178,53 @@ func (l *probeFixtureLab) cleanup() (map[string]any, error) {
 	}
 	return map[string]any{"createdContainers": len(l.containers), "removedContainers": removed,
 		"remainingOwnedContainers": len(strings.Fields(string(remaining))), "imageRemoved": imageRemoved,
-		"remainingOwnedImages": len(strings.Fields(string(images))), "unownedContainerOrImageMutationCommands": 0}, result
+		"remainingOwnedImages": len(strings.Fields(string(images))), "unownedContainerOrImageMutationCommands": 0,
+		"createdVolumes": len(l.volumes), "removedVolumes": removedVolumes,
+		"remainingOwnedVolumes": len(strings.Fields(string(volumes))), "unownedVolumeMutationCommands": 0}, result
+}
+
+// Named local tmpfs volumes are visible to Docker's archive copy path. Plain
+// --tmpfs destinations can be refused by cp when the container root is read-only.
+func (l *probeFixtureLab) volume(role, part string) string {
+	l.t.Helper()
+	name := "fleet-probe-fixture-" + l.token + "-" + role + "-" + part
+	options := "size=16m,noexec,nodev,nosuid"
+	if part == "tmp" {
+		options = "size=128m,exec,nodev,nosuid"
+	} else if part != "data" {
+		l.t.Fatal("invalid owned mount role")
+	}
+	if len(strings.Fields(string(l.require("volume", "ls", "--quiet", "--filter", "name=^"+name+"$")))) != 0 {
+		l.t.Fatal("refusing to adopt an existing fixture volume")
+	}
+	raw := l.require("volume", "create", "--driver", "local", "--label", probeFixtureLabel+"="+l.token,
+		"--opt", "type=tmpfs", "--opt", "device=tmpfs", "--opt", "o="+options, name)
+	if strings.TrimSpace(string(raw)) != name {
+		l.t.Fatal("owned volume creation identity is unknown")
+	}
+	l.volumes = append(l.volumes, probeFixtureVolume{name: name})
+	var observed struct {
+		Name, Driver, CreatedAt string
+		Labels, Options         map[string]string
+	}
+	if json.Unmarshal(l.require("volume", "inspect", "--format", "{{json .}}", name), &observed) != nil ||
+		observed.Name != name || observed.Driver != "local" || observed.CreatedAt == "" || observed.Labels[probeFixtureLabel] != l.token ||
+		len(observed.Options) != 3 || observed.Options["type"] != "tmpfs" || observed.Options["device"] != "tmpfs" || observed.Options["o"] != options {
+		l.t.Fatal("owned tmpfs volume constraints or identity differ")
+	}
+	l.volumes[len(l.volumes)-1].created = observed.CreatedAt
+	return name
 }
 
 func (l *probeFixtureLab) create(role string) string {
 	l.t.Helper()
 	name := "fleet-probe-fixture-" + l.token + "-" + role
+	tmp, data := l.volume(role, "tmp"), l.volume(role, "data")
 	raw := l.require("create", "--name", name, "--label", probeFixtureLabel+"="+l.token,
 		"--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
 		"--cpus", "1", "--memory", "384m", "--memory-swap", "384m", "--pids-limit", "64",
-		"--tmpfs", "/tmp:rw,exec,nodev,nosuid,size=128m", "--tmpfs", "/data:rw,noexec,nodev,nosuid,size=16m", l.image)
+		"--mount", "type=volume,source="+tmp+",target=/tmp,volume-nocopy",
+		"--mount", "type=volume,source="+data+",target=/data,volume-nocopy", l.image)
 	id := strings.TrimSpace(string(raw))
 	if !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(id) {
 		l.t.Fatal("owned container creation returned an invalid identity")
@@ -193,6 +270,15 @@ func (l *probeFixtureLab) create(role string) string {
 		kernel.Limits["cpuQuota"] <= 0 || kernel.Limits["cpuQuota"] != kernel.Limits["cpuPeriod"] ||
 		kernel.Effective != "0000000000000000" || kernel.Bounding != "0000000000000000" || kernel.NoNewPrivileges != "1" || !kernel.RootReadOnly {
 		l.t.Fatal("actual kernel cgroup, capability or mount constraints differ")
+	}
+	if len(kernel.Mounts) != 2 {
+		l.t.Fatal("owned tmpfs kernel observations are incomplete")
+	}
+	for path, maximum := range map[string]int64{"/tmp": 128 << 20, "/data": 16 << 20} {
+		mount, ok := kernel.Mounts[path]
+		if !ok || !mount.Tmpfs || mount.Bytes != maximum || !mount.NoSUID || !mount.NoDev || mount.NoExec != (path == "/data") {
+			l.t.Fatal("actual owned tmpfs type, byte limit or flags differ")
+		}
 	}
 	l.kernel = append(l.kernel, kernel)
 	return id

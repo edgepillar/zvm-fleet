@@ -15,6 +15,11 @@ import (
 	"syscall"
 )
 
+type fixtureMount struct {
+	Bytes                        int64
+	Tmpfs, NoExec, NoSUID, NoDev bool
+}
+
 // This fixture has no shell, network client or general-purpose command API.
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -83,11 +88,21 @@ func run(args []string) error {
 		if syscall.Statfs("/", &filesystem) != nil {
 			return errors.New("root mount constraint unavailable")
 		}
+		mounts := map[string]fixtureMount{}
+		for _, path := range []string{"/tmp", "/data"} {
+			var fs syscall.Statfs_t
+			if syscall.Statfs(path, &fs) != nil || fs.Bsize <= 0 || fs.Blocks > uint64((128<<20)/fs.Bsize) {
+				return errors.New("owned tmpfs mount constraint unavailable")
+			}
+			mounts[path] = fixtureMount{int64(fs.Blocks) * fs.Bsize, fs.Type == 0x01021994,
+				fs.Flags&syscall.MS_NOEXEC != 0, fs.Flags&syscall.MS_NOSUID != 0, fs.Flags&syscall.MS_NODEV != 0}
+		}
 		return json.NewEncoder(os.Stdout).Encode(struct {
+			Mounts                               map[string]fixtureMount
 			Limits                               map[string]int64 `json:"limits"`
 			Effective, Bounding, NoNewPrivileges string
 			RootReadOnly                         bool
-		}{values, caps["CapEff"], caps["CapBnd"], caps["NoNewPrivs"], filesystem.Flags&syscall.MS_RDONLY != 0})
+		}{mounts, values, caps["CapEff"], caps["CapBnd"], caps["NoNewPrivs"], filesystem.Flags&syscall.MS_RDONLY != 0})
 	}
 	path, limit := "", int64(0)
 	switch args[0] {

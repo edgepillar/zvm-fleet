@@ -645,3 +645,15 @@ Before the offline static build, CI caches only the already declared
 Go proxy/checksum service. Its existing module and go.mod checksums are retained;
 source go.mod/go.sum changes fail the selected step. This cache preparation has
 a separate one-minute bound and does not change dependency versions.
+
+The owned fixture uses four fresh, explicitly labelled local-driver tmpfs
+volumes (two per container). This keeps the root filesystem read-only while
+making the real Docker archive copy path usable. Each /tmp remains bounded to
+128 MiB with execution enabled; each /data remains bounded to 16 MiB with
+execution disabled. Both retain nodev/nosuid. Actual kernel filesystem type,
+capacity and flags are checked together with the existing cgroup/capability
+limits. The local volume driver's tmpfs is mounted by Docker; its byte cap is
+verified separately from the container memory cap, without assuming that all
+daemon-side copy allocations are charged to the container cgroup. Cleanup
+verifies labels and creation identity before removing only these four volumes,
+then checks that no owned volumes remain. It does not prune other resources.
