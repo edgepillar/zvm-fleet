@@ -20,10 +20,22 @@ type fixtureMount struct {
 	Tmpfs, NoExec, NoSUID, NoDev bool
 }
 
+var errFixtureOwner = errors.New("owned artifact owner differs")
+
 // This fixture has no shell, network client or general-purpose command API.
 func main() {
 	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "owned probe fixture refused the operation")
+		reason := "unsupported"
+		if errors.Is(err, os.ErrPermission) {
+			reason = "permission"
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			reason = "missing"
+		}
+		if err == errFixtureOwner {
+			reason = "owner-mismatch"
+		}
+		fmt.Fprintln(os.Stderr, "owned probe fixture refused ("+reason+")")
 		os.Exit(2)
 	}
 }
@@ -39,6 +51,10 @@ func run(args []string) error {
 		info, err := os.Lstat(args[1])
 		if err != nil || !info.Mode().IsRegular() || info.Size() > 96<<20 {
 			return errors.New("invalid owned probe")
+		}
+		owner, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || owner.Uid != uint32(os.Geteuid()) {
+			return errFixtureOwner
 		}
 		return os.Chmod(args[1], info.Mode().Perm()|0o111)
 	}
@@ -98,11 +114,12 @@ func run(args []string) error {
 				fs.Flags&syscall.MS_NOEXEC != 0, fs.Flags&syscall.MS_NOSUID != 0, fs.Flags&syscall.MS_NODEV != 0}
 		}
 		return json.NewEncoder(os.Stdout).Encode(struct {
+			NonRoot                              bool
 			Mounts                               map[string]fixtureMount
 			Limits                               map[string]int64 `json:"limits"`
 			Effective, Bounding, NoNewPrivileges string
 			RootReadOnly                         bool
-		}{mounts, values, caps["CapEff"], caps["CapBnd"], caps["NoNewPrivs"], filesystem.Flags&syscall.MS_RDONLY != 0})
+		}{os.Geteuid() > 0, mounts, values, caps["CapEff"], caps["CapBnd"], caps["NoNewPrivs"], filesystem.Flags&syscall.MS_RDONLY != 0})
 	}
 	path, limit := "", int64(0)
 	switch args[0] {

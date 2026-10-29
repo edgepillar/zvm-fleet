@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -41,6 +42,7 @@ type probeFixtureMount struct {
 type probeFixtureVolume struct{ name, created string }
 
 type probeFixtureKernel struct {
+	NonRoot                              bool
 	Mounts                               map[string]probeFixtureMount
 	Limits                               map[string]int64
 	Effective, Bounding, NoNewPrivileges string
@@ -220,7 +222,11 @@ func (l *probeFixtureLab) create(role string) string {
 	l.t.Helper()
 	name := "fleet-probe-fixture-" + l.token + "-" + role
 	tmp, data := l.volume(role, "tmp"), l.volume(role, "data")
-	raw := l.require("create", "--name", name, "--label", probeFixtureLabel+"="+l.token,
+	if os.Geteuid() <= 0 || os.Getegid() <= 0 {
+		l.t.Fatal("owned fixture requires a nonroot source owner")
+	}
+	user := strconv.Itoa(os.Geteuid()) + ":" + strconv.Itoa(os.Getegid())
+	raw := l.require("create", "--user", user, "--name", name, "--label", probeFixtureLabel+"="+l.token,
 		"--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
 		"--cpus", "1", "--memory", "384m", "--memory-swap", "384m", "--pids-limit", "64",
 		"--mount", "type=volume,source="+tmp+",target=/tmp,volume-nocopy",
@@ -236,6 +242,7 @@ func (l *probeFixtureLab) create(role string) string {
 	var observed struct {
 		ID          string `json:"Id"`
 		Name, Image string
+		Config      struct{ User string }
 		HostConfig  struct {
 			NetworkMode                  string
 			ReadonlyRootfs               bool
@@ -249,7 +256,7 @@ func (l *probeFixtureLab) create(role string) string {
 	}
 	h := observed.HostConfig
 	if observed.ID != id || observed.Name != "/"+name || observed.Image != l.image || h.NetworkMode != "none" || !h.ReadonlyRootfs ||
-		h.Memory != 384<<20 || h.MemorySwap != h.Memory || h.NanoCPUs != 1_000_000_000 || h.PidsLimit == nil || *h.PidsLimit != 64 {
+		observed.Config.User != user || h.Memory != 384<<20 || h.MemorySwap != h.Memory || h.NanoCPUs != 1_000_000_000 || h.PidsLimit == nil || *h.PidsLimit != 64 {
 		l.t.Fatal("actual owned container constraints differ from the declared fixture")
 	}
 	contains := func(list []string, value string) bool {
@@ -268,7 +275,7 @@ func (l *probeFixtureLab) create(role string) string {
 	if json.Unmarshal(l.require("exec", id, "/bin/chmod", "runtime-limits"), &kernel) != nil ||
 		kernel.Limits["memoryBytes"] != 384<<20 || kernel.Limits["swapBytes"] != 0 || kernel.Limits["pids"] != 64 ||
 		kernel.Limits["cpuQuota"] <= 0 || kernel.Limits["cpuQuota"] != kernel.Limits["cpuPeriod"] ||
-		kernel.Effective != "0000000000000000" || kernel.Bounding != "0000000000000000" || kernel.NoNewPrivileges != "1" || !kernel.RootReadOnly {
+		!kernel.NonRoot || kernel.Effective != "0000000000000000" || kernel.Bounding != "0000000000000000" || kernel.NoNewPrivileges != "1" || !kernel.RootReadOnly {
 		l.t.Fatal("actual kernel cgroup, capability or mount constraints differ")
 	}
 	if len(kernel.Mounts) != 2 {
@@ -476,7 +483,16 @@ func TestProbeOwnedDockerSQLite(t *testing.T) {
 	lab.require("cp", mediaDir, primary+":/data/media")
 	e := &Env{Probe: probe, Names: Names{Node: primary, NodeB: follower}, running: map[string]bool{primary: true, follower: true}}
 	if err := e.installProbe(ctx); err != nil {
-		t.Fatal("actual probe installation failed:", measurementReportReason(err))
+		reason := "unclassified-owned-fixture-error"
+		var failure *measurementCommandError
+		if errors.As(err, &failure) {
+			for _, token := range []string{"permission", "missing", "owner-mismatch", "unsupported"} {
+				if strings.Contains(failure.diagnostic, "owned probe fixture refused ("+token+")") {
+					reason = "owned-fixture-" + token
+				}
+			}
+		}
+		t.Fatal("actual probe installation failed:", measurementReportReason(err), reason)
 	}
 	var primaryObserved, followerObserved *bench.StorageReport
 	var primaryDBAfter, followerDBAfter probeFixtureDigest

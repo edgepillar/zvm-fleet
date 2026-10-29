@@ -657,3 +657,11 @@ verified separately from the container memory cap, without assuming that all
 daemon-side copy allocations are charged to the container cgroup. Cleanup
 verifies labels and creation identity before removing only these four volumes,
 then checks that no owned volumes remain. It does not prune other resources.
+
+The fixture runs each container with the numeric nonroot owner of the local
+source artifacts. This lets the real chmod path operate on its own copied file
+without restoring any dropped capability. Both inspected configuration and
+actual nonroot process state are checked; the helper refuses an owner mismatch.
+The retained success record keeps only the nonroot observation, without exposing
+host usernames or numeric owner values. Installation failures use a fixed
+allowlist of fixture reason codes rather than copying raw diagnostics.
