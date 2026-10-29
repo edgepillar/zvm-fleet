@@ -25,6 +25,21 @@ jobs:
       - run: go vet ./...
       - run: go test -json -count=1 ./...
 
+      - name: Cache declared static probe dependency
+        timeout-minutes: 1
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: https://proxy.golang.org
+          GOSUMDB: sum.golang.org
+          GOVCS: "*:off"
+          GONOPROXY: none
+          GONOSUMDB: none
+          GOMAXPROCS: "2"
+          GOFLAGS: "-mod=readonly -p=1"
+        run: |
+          go mod download github.com/decred/dcrd/dcrec/secp256k1/v4@v4.0.1
+          git diff --exit-code -- go.mod go.sum
+
       - name: Build owned Docker probe fixtures
         timeout-minutes: 4
         env:
@@ -42,6 +57,7 @@ jobs:
           GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "$fleet_probe_fixture/helper" ./testdata/probe-fixture
           chmod 0644 "$fleet_probe_fixture/zvm-probe"
           chmod 0755 "$fleet_probe_fixture/helper"
+          git diff --exit-code -- go.mod go.sum
 
       - name: Run owned Docker SQLite probe
         timeout-minutes: 4

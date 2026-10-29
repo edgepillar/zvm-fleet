@@ -639,3 +639,9 @@ registry credentials or base-image pull is used.
 The retained success record includes the actual typed probe reports, transferred
 binary and database digests, and both containers' observed kernel limits,
 alongside the independently constructed SQLite/media denominators.
+
+Before the offline static build, CI caches only the already declared
+`github.com/decred/dcrd/dcrec/secp256k1/v4@v4.0.1` prerequisite through the
+Go proxy/checksum service. Its existing module and go.mod checksums are retained;
+source go.mod/go.sum changes fail the selected step. This cache preparation has
+a separate one-minute bound and does not change dependency versions.
